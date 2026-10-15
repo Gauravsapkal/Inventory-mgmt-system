@@ -140,7 +140,18 @@ export interface DashboardStats {
 })
 export class InventoryApiService {
   private http = inject(HttpClient);
-  private readonly baseUrl = 'http://localhost:5000/api';
+  
+  private get baseUrl(): string {
+    if (typeof window !== 'undefined') {
+      const customApi = localStorage.getItem('ERP_API_URL');
+      if (customApi) return customApi.replace(/\/+$/, '');
+      if (window.location.hostname === 'localhost' && window.location.port === '4200') {
+        return 'http://localhost:5000/api';
+      }
+      return '/api';
+    }
+    return '/api';
+  }
 
   // --- Categories ---
   getCategories(): Observable<ApiResponse<Category[]>> {

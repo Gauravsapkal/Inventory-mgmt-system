@@ -28,7 +28,17 @@ export class AuthService {
   private http = inject(HttpClient);
   private router = inject(Router);
 
-  private readonly API_URL = 'http://localhost:5000/api';
+  private get API_URL(): string {
+    if (typeof window !== 'undefined') {
+      const customApi = localStorage.getItem('ERP_API_URL');
+      if (customApi) return customApi.replace(/\/+$/, '');
+      if (window.location.hostname === 'localhost' && window.location.port === '4200') {
+        return 'http://localhost:5000/api';
+      }
+      return '/api';
+    }
+    return '/api';
+  }
 
   currentUser = signal<User | null>(null);
   token = signal<string | null>(localStorage.getItem('erp_token'));

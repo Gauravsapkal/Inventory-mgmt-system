@@ -1,0 +1,40 @@
+# Node & NPM
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Angular build outputs
+dist/
+.angular/
+client/dist/
+client/.angular/
+
+# Server build outputs
+server/dist/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log

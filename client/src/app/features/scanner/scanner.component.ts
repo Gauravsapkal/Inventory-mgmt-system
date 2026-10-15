@@ -14,6 +14,7 @@ import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product } from '../../core/services/inventory-api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PdfService } from '../../core/services/pdf.service';
 
 @Component({
   selector: 'app-scanner',
@@ -65,7 +66,7 @@ import { AuthService } from '../../core/services/auth.service';
         <!-- VIDEO VIEWFINDER AREA -->
         <div class="card viewfinder-card">
           <div class="camera-viewport-container">
-            <video #videoElement class="camera-video" playsinline muted autoplay></video>
+            <video #videoElement class="camera-video" playsinline webkit-playsinline muted autoplay></video>
 
             <!-- SCANNING RETICLE / TARGET FRAME OVERLAY -->
             @if (isScanning()) {
@@ -173,6 +174,10 @@ import { AuthService } from '../../core/services/auth.service';
                     <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/>
                   </svg>
                   <span>Add to Purchase Order</span>
+                </button>
+
+                <button class="btn btn-secondary btn-block" (click)="downloadBarcodeSticker(matchedProduct()!)">
+                  <span>🏷️ Print / Download Barcode Label</span>
                 </button>
               </div>
             </div>
@@ -461,6 +466,7 @@ import { AuthService } from '../../core/services/auth.service';
 export class BarcodeScannerComponent implements OnInit, OnDestroy {
   private api = inject(InventoryApiService);
   private toastService = inject(ToastService);
+  private pdfService = inject(PdfService);
   authService = inject(AuthService);
   private router = inject(Router);
 
@@ -514,24 +520,44 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
     try {
       this.codeReader = new BrowserMultiFormatReader();
 
-      // Configure video constraints preferring environment (rear) camera
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
+      const onScanCallback = (result: any) => {
+        if (result) {
+          this.handleDetectedBarcode(result.getText());
+        }
       };
 
-      this.scannerControls = await this.codeReader.decodeFromConstraints(
-        constraints,
-        this.videoRef.nativeElement,
-        (result, error) => {
-          if (result) {
-            this.handleDetectedBarcode(result.getText());
-          }
+      // Stage 1: Ideal rear-camera with HD resolution
+      try {
+        this.scannerControls = await this.codeReader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
+          this.videoRef.nativeElement,
+          onScanCallback
+        );
+      } catch (err1) {
+        console.warn('HD Environment constraint failed, trying simple environment mode:', err1);
+        // Stage 2: Simple environment facing mode
+        try {
+          this.scannerControls = await this.codeReader.decodeFromConstraints(
+            { video: { facingMode: 'environment' } },
+            this.videoRef.nativeElement,
+            onScanCallback
+          );
+        } catch (err2) {
+          console.warn('Simple environment mode failed, falling back to any available video stream:', err2);
+          // Stage 3: Universal fallback to any active camera
+          this.scannerControls = await this.codeReader.decodeFromConstraints(
+            { video: true },
+            this.videoRef.nativeElement,
+            onScanCallback
+          );
         }
-      );
+      }
 
       this.isScanning.set(true);
 
@@ -540,7 +566,7 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
     } catch (err: any) {
       this.isScanning.set(false);
       this.permissionError.set(err.message || 'Camera permission denied or camera not accessible.');
-      this.toastService.error('Camera could not be activated.');
+      this.toastService.error('Camera could not be activated: ' + (err.message || 'Check permissions'));
     }
   }
 
@@ -683,5 +709,10 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
 
   registerNewProductWithBarcode(): void {
     this.router.navigate(['/products'], { queryParams: { newBarcode: this.unknownCode() } });
+  }
+
+  downloadBarcodeSticker(product: Product): void {
+    this.pdfService.generateBarcodeStickerPdf(product);
+    this.toastService.info(`Barcode sticker generated for '${product.sku}'`);
   }
 }

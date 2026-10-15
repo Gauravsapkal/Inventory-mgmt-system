@@ -1,11 +1,13 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators, FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute, Router } from '@angular/router';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product, Category } from '../../core/services/inventory-api.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PdfService } from '../../core/services/pdf.service';
 
 @Component({
   selector: 'app-products',
@@ -153,6 +155,7 @@ import { AuthService } from '../../core/services/auth.service';
                     </td>
                     <td style="text-align: right;">
                       <div class="row-actions">
+                        <button class="icon-action-btn" (click)="downloadBarcodeSticker(prod)" title="Print/Download Barcode Sticker">🏷️</button>
                         @if (authService.isAdmin()) {
                           <button class="icon-action-btn" (click)="editProduct(prod)" title="Edit product">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -204,12 +207,13 @@ import { AuthService } from '../../core/services/auth.service';
                   </div>
                 </div>
 
-                @if (authService.isAdmin()) {
-                  <div class="card-mobile-actions">
+                <div class="card-mobile-actions">
+                  <button class="btn btn-ghost btn-sm" (click)="downloadBarcodeSticker(prod)" title="Print/Download Barcode">🏷️ Barcode</button>
+                  @if (authService.isAdmin()) {
                     <button class="btn btn-secondary btn-sm" (click)="editProduct(prod)">Edit</button>
                     <button class="btn btn-ghost btn-sm text-danger" (click)="archiveProduct(prod)">Archive</button>
-                  </div>
-                }
+                  }
+                </div>
               </div>
             }
           </div>
@@ -263,12 +267,12 @@ import { AuthService } from '../../core/services/auth.service';
                 </div>
 
                 <div class="form-group col-span-2">
-                  <label class="form-label">Barcode Value (EAN-13 / Code-128)</label>
+                  <label class="form-label">Barcode Value (EAN-13 / Code-128 / QR)</label>
                   <div class="barcode-input-group">
                     <input type="text" class="form-control font-mono" formControlName="barcode" placeholder="Scan or enter barcode" />
-                    <a routerLink="/scanner" (click)="closeModal()" class="btn btn-secondary btn-sm" title="Open scanner to capture code">
-                      Scan Code
-                    </a>
+                    <button type="button" class="btn btn-secondary btn-sm" (click)="openFormCameraScanner()" title="Scan barcode with camera">
+                      📷 Scan
+                    </button>
                   </div>
                 </div>
 
@@ -318,6 +322,38 @@ import { AuthService } from '../../core/services/auth.service';
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      }
+
+      <!-- INLINE BARCODE SCANNER MODAL FOR PRODUCT FORM -->
+      @if (showFormScanner()) {
+        <div class="modal-backdrop scanner-modal-backdrop" (click)="closeFormCameraScanner()">
+          <div class="modal-dialog scanner-modal-dialog card" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+              <div>
+                <h3 style="margin: 0; font-size: 1.15rem;">📷 Scan Product Barcode</h3>
+                <span style="font-size: 0.8rem; color: var(--color-text-muted);">Point camera at barcode on packaging</span>
+              </div>
+              <button class="icon-btn" (click)="closeFormCameraScanner()">&times;</button>
+            </div>
+
+            <div class="scanner-viewport-wrapper">
+              <video #formScannerVideo class="scanner-video" playsinline webkit-playsinline muted autoplay></video>
+              <div class="scanner-overlay">
+                <div class="laser-scanner-line"></div>
+              </div>
+            </div>
+
+            @if (scannerError()) {
+              <div class="alert alert-danger" style="margin-top: 0.75rem; padding: 0.5rem; font-size: 0.8rem; border-radius: 6px; background: #fee2e2; color: #b91c1c;">
+                {{ scannerError() }}
+              </div>
+            }
+
+            <div class="modal-footer" style="margin-top: 1rem; padding-top: 0.75rem;">
+              <button type="button" class="btn btn-secondary" (click)="closeFormCameraScanner()">Cancel</button>
+            </div>
           </div>
         </div>
       }
@@ -649,14 +685,62 @@ import { AuthService } from '../../core/services/auth.service';
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    .scanner-modal-dialog {
+      max-width: 440px;
+      padding: 1.25rem;
+    }
+
+    .scanner-viewport-wrapper {
+      position: relative;
+      width: 100%;
+      height: 260px;
+      background: #000;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .scanner-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .scanner-overlay {
+      position: absolute;
+      inset: 20px;
+      border: 2px dashed rgba(255, 255, 255, 0.75);
+      border-radius: var(--radius-md);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .laser-scanner-line {
+      width: 100%;
+      height: 2px;
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+      animation: scanLaser 2s infinite ease-in-out;
+    }
+
+    @keyframes scanLaser {
+      0%, 100% { transform: translateY(-70px); }
+      50% { transform: translateY(70px); }
+    }
   `],
 })
-export class ProductsComponent implements OnInit {
+export class ProductsComponent implements OnInit, OnDestroy {
   private api = inject(InventoryApiService);
   private fb = inject(FormBuilder);
   layout = inject(LayoutService);
   toastService = inject(ToastService);
   authService = inject(AuthService);
+  pdfService = inject(PdfService);
   private route = inject(ActivatedRoute);
 
   products = signal<Product[]>([]);
@@ -675,6 +759,13 @@ export class ProductsComponent implements OnInit {
   // Modal State
   showModal = signal<boolean>(false);
   editingProduct = signal<Product | null>(null);
+
+  // Inline Form Camera Scanner
+  showFormScanner = signal<boolean>(false);
+  scannerError = signal<string | null>(null);
+  @ViewChild('formScannerVideo') formScannerVideo?: ElementRef<HTMLVideoElement>;
+  private formCodeReader?: BrowserMultiFormatReader;
+  private formScannerControls?: IScannerControls;
 
   productForm = this.fb.group({
     name: ['', [Validators.required, Validators.minLength(2)]],
@@ -838,5 +929,118 @@ export class ProductsComponent implements OnInit {
         },
       });
     }
+  }
+
+  downloadBarcodeSticker(prod: Product): void {
+    this.pdfService.generateBarcodeStickerPdf(prod);
+    this.toastService.info(`Barcode sticker generated for '${prod.sku}'`);
+  }
+
+  openFormCameraScanner(): void {
+    this.scannerError.set(null);
+    this.showFormScanner.set(true);
+    setTimeout(() => {
+      this.startFormCamera();
+    }, 150);
+  }
+
+  private async startFormCamera(): Promise<void> {
+    if (!this.formScannerVideo?.nativeElement) return;
+    try {
+      this.formCodeReader = new BrowserMultiFormatReader();
+
+      const constraintProfiles: MediaStreamConstraints[] = [
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        },
+        {
+          video: { facingMode: 'environment' },
+          audio: false,
+        },
+        {
+          video: true,
+          audio: false,
+        },
+      ];
+
+      let stream: MediaStream | null = null;
+      for (const constraints of constraintProfiles) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch {
+          // Fall back to next constraint profile
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to access camera. Please grant camera permission.');
+      }
+
+      const videoEl = this.formScannerVideo.nativeElement;
+      videoEl.srcObject = stream;
+      await videoEl.play();
+
+      this.formScannerControls = await this.formCodeReader.decodeFromVideoElement(
+        videoEl,
+        (result, error) => {
+          if (result) {
+            const code = result.getText().trim();
+            if (code) {
+              this.playBeep();
+              this.productForm.patchValue({ barcode: code });
+              this.toastService.success(`Barcode scanned: ${code}`);
+              this.closeFormCameraScanner();
+            }
+          }
+        }
+      );
+    } catch (err: any) {
+      this.scannerError.set(err?.message || 'Camera permission denied or camera device unavailable.');
+    }
+  }
+
+  closeFormCameraScanner(): void {
+    if (this.formScannerControls) {
+      this.formScannerControls.stop();
+      this.formScannerControls = undefined;
+    }
+    if (this.formScannerVideo?.nativeElement?.srcObject) {
+      const stream = this.formScannerVideo.nativeElement.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      this.formScannerVideo.nativeElement.srcObject = null;
+    }
+    this.showFormScanner.set(false);
+  }
+
+  private playBeep(): void {
+    if (navigator.vibrate) navigator.vibrate(100);
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1400, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      }
+    } catch {
+      // Audio autoplay policy
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.closeFormCameraScanner();
   }
 }

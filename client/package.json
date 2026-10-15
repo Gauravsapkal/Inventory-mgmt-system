@@ -17,9 +17,13 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
+    "@types/jsbarcode": "^3.11.4",
     "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.21.3",
     "chart.js": "^4.5.1",
+    "jsbarcode": "^3.12.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

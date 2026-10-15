@@ -52,13 +52,42 @@ If you connect your Android phone to your PC via USB cable:
 
 ---
 
-## 3. Sample Barcodes for Viva Demonstration
+---
 
-You can scan these barcodes from another screen, print them, or type them into the manual entry box:
+## 4. Testing Omni-Channel Mobile Workflows
 
-| Product Name | Barcode | Format |
-|---|---|---|
-| Mineral Water 1L Bottle | `8901234567890` | EAN-13 |
-| USB-C Fast Charging Cable 1m | `8909876543211` | EAN-13 |
-| Executive Gel Pen Pack of 5 | `8904567890123` | EAN-13 |
-| Organic Roasted Almonds 200g | `8906789012345` | EAN-13 |
+### A. Point of Sale (POS) Continuous Mobile Scanning
+1. On your phone, tap **Sales** from the bottom navigation bar.
+2. In the POS screen, tap the **📷 Camera Scanner** button above the cart.
+3. The continuous scanning camera modal opens. Aim at products sequentially:
+   - Each scan triggers an audible beep and 100ms haptic vibration.
+   - The item is immediately appended to the active cart with available stock checks.
+4. Tap **Checkout** &rarr; select payment method (Cash / UPI / Card) &rarr; tap **Complete Checkout**.
+5. On the completion screen:
+   - Tap **📥 Download PDF** to save `Invoice_<number>.pdf` directly into the phone's Downloads folder.
+   - Tap **📱 Share** to share the receipt via WhatsApp or native Android share sheet.
+   - Tap **🖨️ Print Invoice** to trigger standard Android print preview (Cloud Print / thermal receipt printer).
+
+### B. Barcode Sticker Printing & Product Registration
+1. In **Products**, tap the **🏷️ Barcode** button on any product card.
+2. An 80x50mm barcode sticker label PDF is generated with the item's title, SKU, barcode, and MRP.
+3. When adding a new product, tap the **📷 Scan** button next to the barcode input field to capture the barcode on physical packaging directly into the form.
+
+### C. Inward Stock Receiving (Purchases)
+1. In **Purchases**, tap **+ New Purchase Order**.
+2. Tap **📷 Scan Barcode** next to "Add Product".
+3. Point phone camera at incoming inventory cartons to auto-select products and populate unit costs.
+4. Tap **📥 PDF** on any purchase order in the list to generate and download a formal Goods Receipt Note (GRN).
+
+---
+
+## 5. Sample Demo Barcodes for Viva & Testing
+
+You can display these barcodes on another monitor or print them for physical scanning:
+
+| Product Name | Barcode | Format | Category |
+|---|---|---|---|
+| Mineral Water 1L Bottle | `8901234567890` | EAN-13 | Beverages |
+| USB-C Fast Charging Cable 1m | `8909876543211` | EAN-13 | Electronics |
+| Executive Gel Pen Pack of 5 | `8904567890123` | EAN-13 | Stationery |
+| Organic Roasted Almonds 200g | `8906789012345` | EAN-13 | Groceries |

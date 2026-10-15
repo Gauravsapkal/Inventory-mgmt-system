@@ -1,10 +1,12 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute } from '@angular/router';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Purchase, Supplier, Product } from '../../core/services/inventory-api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PdfService } from '../../core/services/pdf.service';
 
 interface PurchaseLineItem {
   product: Product;
@@ -50,7 +52,12 @@ interface PurchaseLineItem {
             <!-- PRODUCT SELECTOR -->
             <div class="add-item-box">
               <div class="product-drop">
-                <label class="form-label">Add Product</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <label class="form-label" style="margin: 0;">Add Product</label>
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="openPoScanner()" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">
+                    📷 Scan Barcode
+                  </button>
+                </div>
                 <select class="form-control" [(ngModel)]="selectedProductId" (change)="onProductSelect()">
                   <option value="">Select a product to add</option>
                   @for (prod of products(); track prod._id) {
@@ -187,18 +194,55 @@ interface PurchaseLineItem {
                     </span>
                   </td>
                   <td style="text-align: right;">
-                    @if (po.status === 'draft') {
-                      <button class="btn btn-success btn-sm" (click)="receiveOrder(po)">
-                        Receive Items
+                    <div style="display: inline-flex; gap: 0.5rem; justify-content: flex-end; align-items: center;">
+                      <button class="btn btn-secondary btn-sm" (click)="downloadPoPdf(po)" title="Download PO / GRN Document">
+                        📥 PDF
                       </button>
-                    } @else {
-                      <span class="text-muted" style="font-size: 0.8rem;">Received</span>
-                    }
+                      @if (po.status === 'draft') {
+                        <button class="btn btn-success btn-sm" (click)="receiveOrder(po)">
+                          Receive
+                        </button>
+                      } @else {
+                        <span class="badge badge-success">Received</span>
+                      }
+                    </div>
                   </td>
                 </tr>
               }
             </tbody>
           </table>
+        </div>
+      }
+
+      <!-- INLINE CAMERA SCANNER FOR PURCHASES -->
+      @if (showPoScanner()) {
+        <div class="modal-backdrop scanner-modal-backdrop" (click)="closePoScanner()">
+          <div class="modal-dialog scanner-modal-dialog card" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+              <div>
+                <h3 style="margin: 0; font-size: 1.15rem;">📷 Scan Receiving Barcode</h3>
+                <span style="font-size: 0.8rem; color: var(--color-text-muted);">Scan product barcode to select item</span>
+              </div>
+              <button class="icon-btn" (click)="closePoScanner()">&times;</button>
+            </div>
+
+            <div class="scanner-viewport-wrapper">
+              <video #poScannerVideo class="scanner-video" playsinline webkit-playsinline muted autoplay></video>
+              <div class="scanner-overlay">
+                <div class="laser-scanner-line"></div>
+              </div>
+            </div>
+
+            @if (scannerError()) {
+              <div class="alert alert-danger" style="margin-top: 0.75rem; padding: 0.5rem; font-size: 0.8rem; border-radius: 6px; background: #fee2e2; color: #b91c1c;">
+                {{ scannerError() }}
+              </div>
+            }
+
+            <div class="modal-footer" style="margin-top: 1rem; padding-top: 0.75rem; display: flex; justify-content: flex-end;">
+              <button type="button" class="btn btn-secondary" (click)="closePoScanner()">Close</button>
+            </div>
+          </div>
         </div>
       }
     </div>
@@ -278,12 +322,82 @@ interface PurchaseLineItem {
 
     .font-bold { font-weight: 600; }
     .text-muted { color: var(--color-text-muted); }
+
+    /* Modal Backdrop */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .scanner-modal-dialog {
+      width: 100%;
+      max-width: 440px;
+      padding: 1.25rem;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .scanner-viewport-wrapper {
+      position: relative;
+      width: 100%;
+      height: 260px;
+      background: #000;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .scanner-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .scanner-overlay {
+      position: absolute;
+      inset: 20px;
+      border: 2px dashed rgba(255, 255, 255, 0.75);
+      border-radius: var(--radius-md);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .laser-scanner-line {
+      width: 100%;
+      height: 2px;
+      background: #0f766e;
+      box-shadow: 0 0 8px #0f766e;
+      animation: scanLaser 2s infinite ease-in-out;
+    }
+
+    @keyframes scanLaser {
+      0%, 100% { transform: translateY(-70px); }
+      50% { transform: translateY(70px); }
+    }
   `],
 })
-export class PurchasesComponent implements OnInit {
+export class PurchasesComponent implements OnInit, OnDestroy {
   private api = inject(InventoryApiService);
   private toast = inject(ToastService);
   authService = inject(AuthService);
+  pdfService = inject(PdfService);
   private route = inject(ActivatedRoute);
 
   purchases = signal<Purchase[]>([]);
@@ -292,6 +406,13 @@ export class PurchasesComponent implements OnInit {
 
   isCreating = signal<boolean>(false);
   isSaving = signal<boolean>(false);
+
+  // Inline PO Camera Scanner
+  showPoScanner = signal<boolean>(false);
+  scannerError = signal<string | null>(null);
+  @ViewChild('poScannerVideo') poScannerVideo?: ElementRef<HTMLVideoElement>;
+  private poCodeReader?: BrowserMultiFormatReader;
+  private poScannerControls?: IScannerControls;
 
   // Form State
   selectedSupplierId = '';
@@ -424,5 +545,146 @@ export class PurchasesComponent implements OnInit {
         },
       });
     }
+  }
+
+  downloadPoPdf(po: Purchase): void {
+    this.pdfService.generatePurchaseOrderPdf(po);
+    this.toast.info(`Purchase order PDF generated for '${po.purchaseNumber}'`);
+  }
+
+  openPoScanner(): void {
+    this.scannerError.set(null);
+    this.showPoScanner.set(true);
+    setTimeout(() => {
+      this.startPoCamera();
+    }, 150);
+  }
+
+  private async startPoCamera(): Promise<void> {
+    if (!this.poScannerVideo?.nativeElement) return;
+    try {
+      this.poCodeReader = new BrowserMultiFormatReader();
+
+      const constraintProfiles: MediaStreamConstraints[] = [
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        },
+        {
+          video: { facingMode: 'environment' },
+          audio: false,
+        },
+        {
+          video: true,
+          audio: false,
+        },
+      ];
+
+      let stream: MediaStream | null = null;
+      for (const constraints of constraintProfiles) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch {
+          // Fall back to next constraint profile
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to access camera. Please grant camera permission.');
+      }
+
+      const videoEl = this.poScannerVideo.nativeElement;
+      videoEl.srcObject = stream;
+      await videoEl.play();
+
+      this.poScannerControls = await this.poCodeReader.decodeFromVideoElement(
+        videoEl,
+        (result, error) => {
+          if (result) {
+            const code = result.getText().trim();
+            if (code) {
+              this.handleScannedPoBarcode(code);
+            }
+          }
+        }
+      );
+    } catch (err: any) {
+      this.scannerError.set(err?.message || 'Camera permission denied or camera device unavailable.');
+    }
+  }
+
+  private handleScannedPoBarcode(code: string): void {
+    this.playBeep();
+    // 1. Check local catalog
+    const localMatch = this.products().find((p) => p.barcode === code || p.sku.toLowerCase() === code.toLowerCase());
+    if (localMatch) {
+      this.selectedProductId = localMatch._id;
+      this.itemCost = localMatch.purchasePrice;
+      this.toast.success(`Selected: ${localMatch.name}`);
+      this.closePoScanner();
+      return;
+    }
+
+    // 2. Lookup barcode API
+    this.api.lookupBarcode(code).subscribe({
+      next: (res) => {
+        if (res.success && res.data.found && res.data.product) {
+          const product = res.data.product;
+          this.selectedProductId = product._id;
+          this.itemCost = product.purchasePrice;
+          this.toast.success(`Selected: ${product.name}`);
+          this.closePoScanner();
+        } else {
+          this.toast.error(`No product found for barcode: ${code}`);
+        }
+      },
+      error: () => {
+        this.toast.error(`Lookup failed for barcode: ${code}`);
+      },
+    });
+  }
+
+  closePoScanner(): void {
+    if (this.poScannerControls) {
+      this.poScannerControls.stop();
+      this.poScannerControls = undefined;
+    }
+    if (this.poScannerVideo?.nativeElement?.srcObject) {
+      const stream = this.poScannerVideo.nativeElement.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      this.poScannerVideo.nativeElement.srcObject = null;
+    }
+    this.showPoScanner.set(false);
+  }
+
+  private playBeep(): void {
+    if (navigator.vibrate) navigator.vibrate(100);
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1400, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      }
+    } catch {
+      // Audio autoplay policy
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.closePoScanner();
   }
 }

@@ -11,25 +11,43 @@ A complete, production-grade **Inventory Management & Point of Sale (POS) System
 
 ## 🌟 Key Features
 
-1. **Phone-Camera Barcode Scanner:**
-   - Zero additional hardware required; uses smartphone rear camera via WebRTC and ZXing engine.
-   - Targeting reticle overlay, torch toggle, switch camera, and sound/vibration feedback.
-   - Manual entry and USB keyboard-wedge barcode scanner fallbacks.
-2. **Atomic Stock & POS Billing:**
+1. **Omni-Channel Mobile Camera Barcode Scanning:**
+   - Zero specialized hardware required; runs on any standard smartphone (Android / iOS) via WebRTC & ZXing.
+   - Multi-stage progressive hardware constraint fallback (`ideal: 'environment'` with HD → `facingMode: 'environment'` → `{ video: true }`) so camera access never fails with `OverconstrainedError`.
+   - **Continuous POS Checkout Scanner:** Cashiers can open the camera directly inside the POS sales register and scan items continuously with Web Audio beep & haptic vibration feedback.
+   - **Product Form Inline Scanner:** Auto-fills packaging barcodes directly into catalog records.
+   - **Procurement Receiving Scanner:** Inward warehouse staff scan supplier cartons to auto-select and receive items.
+   - **Audit Adjustment Scanner:** Scan physical goods on shelves during stock audits to adjust quantities.
+   - **Dedicated Scanner View:** Fullscreen camera viewfinder with laser targeting reticle, flashlight/torch toggle, front/rear camera switcher, and USB barcode gun support.
+
+2. **Enterprise PDF Generation & Direct Printing Engine:**
+   - Integrated client-side PDF engine powered by `jspdf`, `jspdf-autotable`, and `jsbarcode`.
+   - **Tax Invoice PDF:** One-click instant download (`Invoice_<number>.pdf`) with company letterhead, GST breakdown, customer details, and embedded invoice barcode.
+   - **Barcode Sticker Labels:** Generates standard 80x50mm printable barcode sticker tags with product title, SKU, barcode, and MRP.
+   - **Purchase Orders & GRN PDF:** Formal procurement orders with vendor information, line items, and authorized sign-off lines.
+   - **Inventory Audit & Valuation Report PDF:** Landscape executive audit report calculating units, total asset costs, retail valuation, and low-stock alerts.
+   - **Digital Receipt Sharing:** Direct sharing via Web Share API and WhatsApp Web (`wa.me`).
+   - **Resolved Native Print Bug:** Completely eliminated blank print pages caused by `.no-print` modal backdrop inheritance.
+
+3. **Atomic Stock & POS Billing:**
    - Real-time stock validation at commit prevents overselling.
    - Live cart with automatic discount and tax calculations.
-   - Print-ready A4 customer invoice generated with dedicated `@media print` CSS.
-3. **Responsive Mobile-First Ergonomics:**
+   - Instant POS checkout with Cash, Card, and UPI QR payment methods.
+
+4. **Responsive Mobile-First Ergonomics:**
    - **Desktop View:** Fixed collapsible dark navy sidebar, two-pane POS layout, 4-column dashboard, and full data tables.
    - **Mobile View:** Header with slide-in navigation drawer, single-column flow with sticky bottom cart bar, and 5-action bottom navigation bar with elevated Scan action.
-4. **Append-Only Stock History:**
+
+5. **Append-Only Stock History:**
    - Every purchase, sale, and authorized adjustment is logged immutably with previous/new stock levels, timestamps, user ID, and audit reasons.
-5. **Role-Based Access Control (RBAC):**
+
+6. **Role-Based Access Control (RBAC):**
    - **Administrator:** Full catalog CRUD, purchase orders, manual stock adjustments, user account management, and financial analytics.
    - **Staff:** Product lookup, phone-camera scanning, and POS customer checkouts.
-6. **Executive Dashboard & Analytics:**
+
+7. **Executive Dashboard & Analytics:**
    - Real-time aggregation pipelines computing active items, units in stock, asset valuation, daily sales trend, top-selling items, and category distribution.
-   - CSV export for inventory valuation, sales reports, and procurement records.
+   - Exportable CSV and PDF reports for accounting and stocktaking.
 
 ---
 

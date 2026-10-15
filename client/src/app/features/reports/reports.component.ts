@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { InventoryApiService, Product, Sale, Purchase } from '../../core/services/inventory-api.service';
 import { ToastService } from '../../core/services/toast.service';
+import { PdfService } from '../../core/services/pdf.service';
 
 @Component({
   selector: 'app-reports',
@@ -17,6 +18,7 @@ import { ToastService } from '../../core/services/toast.service';
           <p class="page-subtitle">Exportable financial and stock auditing summaries</p>
         </div>
         <div class="header-actions">
+          <button class="btn btn-primary" (click)="downloadReportPdf()">📄 Download PDF Report</button>
           <button class="btn btn-secondary" (click)="exportCSV()">📥 Export CSV</button>
         </div>
       </div>
@@ -246,6 +248,7 @@ import { ToastService } from '../../core/services/toast.service';
 export class ReportsComponent implements OnInit {
   private api = inject(InventoryApiService);
   private toast = inject(ToastService);
+  private pdfService = inject(PdfService);
   private route = inject(ActivatedRoute);
 
   activeTab: 'inventory' | 'sales' | 'purchases' = 'inventory';
@@ -333,5 +336,18 @@ export class ReportsComponent implements OnInit {
     link.click();
     URL.revokeObjectURL(url);
     this.toast.success(`Exported ${filename}`);
+  }
+
+  downloadReportPdf(): void {
+    if (this.activeTab === 'inventory') {
+      if (this.inventoryReport().length === 0) {
+        this.toast.error('No inventory items to generate report.');
+        return;
+      }
+      this.pdfService.generateInventoryReportPdf(this.inventoryReport());
+      this.toast.success('Inventory valuation PDF report downloaded!');
+    } else {
+      window.print();
+    }
   }
 }

@@ -1,11 +1,13 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute } from '@angular/router';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product, Sale } from '../../core/services/inventory-api.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PdfService } from '../../core/services/pdf.service';
 
 interface CartItem {
   product: Product;
@@ -47,13 +49,18 @@ interface CartItem {
                   [(ngModel)]="scanInput"
                   (keyup.enter)="onScanLookup()"
                 />
-                <a routerLink="/scanner" class="btn btn-secondary btn-sm" title="Scan with Phone Camera">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm camera-scan-btn"
+                  (click)="openPosCameraScanner()"
+                  title="Scan with Phone Camera directly into cart"
+                >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                    <path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
                   </svg>
-                  <span>Camera</span>
-                </a>
+                  <span>Camera Scanner</span>
+                </button>
               </div>
 
               <div class="filter-row">
@@ -228,9 +235,19 @@ interface CartItem {
               <span class="badge badge-info">{{ cart().length }} Items</span>
               <span class="preview-total font-mono">₹{{ grandTotal().toFixed(2) }}</span>
             </div>
-            <button class="btn btn-primary btn-sm">
-              Checkout &rarr;
-            </button>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                (click)="$event.stopPropagation(); openPosCameraScanner()"
+                title="Scan Barcode"
+              >
+                📷 Scan
+              </button>
+              <button class="btn btn-primary btn-sm">
+                Checkout &rarr;
+              </button>
+            </div>
           </div>
         }
       } @else {
@@ -271,7 +288,10 @@ interface CartItem {
                     <td class="font-mono font-bold text-success">₹{{ sale.grandTotal.toFixed(2) }}</td>
                     <td><span class="badge badge-info">{{ sale.paymentMethod | uppercase }}</span></td>
                     <td>
-                      <button class="btn btn-secondary btn-sm" (click)="viewInvoice(sale)">View Invoice</button>
+                      <div style="display: flex; gap: 0.35rem;">
+                        <button class="btn btn-secondary btn-sm" (click)="viewInvoice(sale)">View</button>
+                        <button class="btn btn-primary btn-sm" (click)="downloadPdf(sale)" title="Download PDF">PDF</button>
+                      </div>
                     </td>
                   </tr>
                 }
@@ -281,19 +301,84 @@ interface CartItem {
         </div>
       }
 
-      <!-- PRINT-FRIENDLY INVOICE DIALOG / PRINT RECEIPT -->
+      <!-- INLINE MOBILE POS CAMERA SCANNER MODAL -->
+      @if (showCameraScanner()) {
+        <div class="pos-scanner-modal-backdrop" (click)="closePosCameraScanner()">
+          <div class="pos-scanner-modal-content card" (click)="$event.stopPropagation()">
+            <div class="pos-scanner-header">
+              <div class="scanner-title-badge">
+                <span class="badge badge-success">📷 Live Camera Scanner</span>
+                <span>Scan directly into cart</span>
+              </div>
+              <button class="icon-btn" (click)="closePosCameraScanner()">&times;</button>
+            </div>
+
+            <div class="pos-scanner-viewport">
+              <video #posVideoElement class="pos-camera-video" playsinline webkit-playsinline muted autoplay></video>
+
+              <!-- RETICLE -->
+              <div class="pos-reticle">
+                <div class="reticle-corner top-left"></div>
+                <div class="reticle-corner top-right"></div>
+                <div class="reticle-corner bottom-left"></div>
+                <div class="reticle-corner bottom-right"></div>
+                <div class="pos-laser-line"></div>
+              </div>
+
+              @if (scannerFlashMsg()) {
+                <div class="scanner-flash-toast">
+                  {{ scannerFlashMsg() }}
+                </div>
+              }
+            </div>
+
+            <!-- SCANNER CONTROLS & CART SUMMARY BAR -->
+            <div class="pos-scanner-footer">
+              <div class="scanner-stats-row">
+                <span class="font-mono font-bold">Cart Items: {{ cart().length }}</span>
+                <span class="font-mono font-bold text-primary">Total: ₹{{ grandTotal().toFixed(2) }}</span>
+              </div>
+
+              <div class="scanner-btn-row">
+                @if (supportsTorch()) {
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="toggleTorch()">
+                    {{ isTorchOn() ? '🔦 Torch Off' : '💡 Torch On' }}
+                  </button>
+                }
+                <button type="button" class="btn btn-primary btn-sm" (click)="closePosCameraScanner()">
+                  Done Scanning ({{ cart().length }})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- PRINT-FRIENDLY & PDF-DOWNLOADABLE INVOICE MODAL -->
       @if (activeInvoice()) {
-        <div class="modal-backdrop no-print" (click)="activeInvoice.set(null)">
-          <div class="modal-dialog card invoice-print-container" (click)="$event.stopPropagation()">
-            <div class="modal-header no-print">
-              <h3>Invoice Receipt</h3>
-              <div class="modal-actions">
-                <button class="btn btn-primary btn-sm" (click)="printInvoice()">🖨️ Print Receipt</button>
+        <div class="invoice-modal-backdrop" (click)="activeInvoice.set(null)">
+          <div class="invoice-modal-dialog card invoice-print-container" (click)="$event.stopPropagation()">
+            <div class="invoice-modal-actions-bar no-print">
+              <div class="actions-left">
+                <span class="badge badge-success">✓ Invoice Generated</span>
+              </div>
+              <div class="actions-right">
+                <button class="btn btn-primary btn-sm" (click)="downloadPdf(activeInvoice()!)" title="Download PDF document directly">
+                  📥 Download PDF
+                </button>
+                <button class="btn btn-secondary btn-sm" (click)="printInvoice()" title="Print receipt on printer">
+                  🖨️ Print
+                </button>
+                @if (canShare()) {
+                  <button class="btn btn-secondary btn-sm" (click)="shareInvoice(activeInvoice()!)" title="Share via WhatsApp or mobile apps">
+                    📱 Share
+                  </button>
+                }
                 <button class="icon-btn" (click)="activeInvoice.set(null)">&times;</button>
               </div>
             </div>
 
-            <!-- INVOICE SHEET (Printed directly via window.print) -->
+            <!-- INVOICE SHEET (Pure printable content) -->
             <div class="invoice-sheet" id="printable-invoice">
               <div class="invoice-top">
                 <div class="store-info">
@@ -413,6 +498,12 @@ interface CartItem {
       display: flex;
       gap: 0.5rem;
       margin-bottom: 0.75rem;
+
+      .camera-scan-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
     }
 
     .pos-catalog-grid {
@@ -700,7 +791,179 @@ interface CartItem {
       }
     }
 
-    /* INVOICE SHEET FOR SCREEN AND PRINT */
+    /* INLINE POS SCANNER MODAL */
+    .pos-scanner-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(4px);
+      z-index: 1050;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .pos-scanner-modal-content {
+      width: 100%;
+      max-width: 500px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .pos-scanner-header {
+      padding: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+      .scanner-title-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+      }
+    }
+
+    .pos-scanner-viewport {
+      position: relative;
+      width: 100%;
+      height: 320px;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      @media (max-width: 480px) {
+        height: 280px;
+      }
+    }
+
+    .pos-camera-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .pos-reticle {
+      position: absolute;
+      width: 220px;
+      height: 140px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+      border-radius: 8px;
+      pointer-events: none;
+
+      .reticle-corner {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-color: #38bdf8;
+        border-style: solid;
+
+        &.top-left { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-top-left-radius: 6px; }
+        &.top-right { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-top-right-radius: 6px; }
+        &.bottom-left { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; border-bottom-left-radius: 6px; }
+        &.bottom-right { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-bottom-right-radius: 6px; }
+      }
+
+      .pos-laser-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #22c55e, #86efac, transparent);
+        box-shadow: 0 0 8px #22c55e;
+        animation: scanPosSweep 1.6s ease-in-out infinite alternate;
+      }
+    }
+
+    @keyframes scanPosSweep {
+      0% { top: 5%; }
+      100% { top: 95%; }
+    }
+
+    .scanner-flash-toast {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      right: 1rem;
+      background: #10b981;
+      color: #ffffff;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-full);
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: center;
+      animation: fadeIn 0.15s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .pos-scanner-footer {
+      padding: 1rem;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+
+      .scanner-stats-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+      }
+
+      .scanner-btn-row {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+      }
+    }
+
+    /* INVOICE MODAL (NO no-print class on container to fix print bug!) */
+    .invoice-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .invoice-modal-dialog {
+      width: 100%;
+      max-width: 680px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: #ffffff;
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-float);
+    }
+
+    .invoice-modal-actions-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--color-border);
+      background: #f8fafc;
+
+      .actions-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+    }
+
+    /* INVOICE SHEET */
     .invoice-sheet {
       background: #ffffff;
       padding: 1.5rem;
@@ -769,10 +1032,11 @@ interface CartItem {
     }
   `],
 })
-export class SalesComponent implements OnInit {
+export class SalesComponent implements OnInit, OnDestroy {
   private api = inject(InventoryApiService);
   layout = inject(LayoutService);
   private toastService = inject(ToastService);
+  private pdfService = inject(PdfService);
   private route = inject(ActivatedRoute);
 
   products = signal<Product[]>([]);
@@ -801,10 +1065,23 @@ export class SalesComponent implements OnInit {
   historySearch = '';
   activeInvoice = signal<Sale | null>(null);
 
+  // INLINE MOBILE CAMERA SCANNER IN POS
+  showCameraScanner = signal<boolean>(false);
+  scannerFlashMsg = signal<string | null>(null);
+  supportsTorch = signal<boolean>(false);
+  isTorchOn = signal<boolean>(false);
+
+  @ViewChild('posVideoElement') posVideoRef?: ElementRef<HTMLVideoElement>;
+  private posCodeReader: BrowserMultiFormatReader | null = null;
+  private posScannerControls: IScannerControls | null = null;
+  private lastScanTimestamp = 0;
+  private lastScannedCode = '';
+
+  canShare = signal<boolean>(typeof navigator !== 'undefined' && !!navigator.share);
+
   ngOnInit(): void {
     this.loadCatalog();
 
-    // Check if query params pre-selects product from scanner
     this.route.queryParams.subscribe((params) => {
       if (params['addProductId']) {
         this.api.getProductById(params['addProductId']).subscribe({
@@ -816,6 +1093,10 @@ export class SalesComponent implements OnInit {
         });
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stopPosCamera();
   }
 
   loadCatalog(): void {
@@ -862,6 +1143,159 @@ export class SalesComponent implements OnInit {
     });
   }
 
+  // --- INLINE POS CAMERA SCANNER IMPLEMENTATION ---
+  openPosCameraScanner(): void {
+    this.showCameraScanner.set(true);
+    // Allow DOM to render video element before initializing stream
+    setTimeout(() => {
+      this.startPosCamera();
+    }, 150);
+  }
+
+  async startPosCamera(): Promise<void> {
+    if (!this.posVideoRef?.nativeElement) return;
+    try {
+      this.posCodeReader = new BrowserMultiFormatReader();
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      };
+
+      try {
+        this.posScannerControls = await this.posCodeReader.decodeFromConstraints(
+          constraints,
+          this.posVideoRef.nativeElement,
+          (result) => {
+            if (result) {
+              this.handlePosBarcodeDetected(result.getText());
+            }
+          }
+        );
+      } catch (constraintErr) {
+        // Fallback for devices that reject specific resolution constraints
+        this.posScannerControls = await this.posCodeReader.decodeFromConstraints(
+          { video: { facingMode: 'environment' } },
+          this.posVideoRef.nativeElement,
+          (result) => {
+            if (result) {
+              this.handlePosBarcodeDetected(result.getText());
+            }
+          }
+        );
+      }
+
+      this.checkTorchCapability();
+    } catch (err: any) {
+      this.toastService.error('Camera could not be activated: ' + (err.message || 'Permission denied'));
+      this.showCameraScanner.set(false);
+    }
+  }
+
+  private checkTorchCapability(): void {
+    try {
+      if (this.posVideoRef?.nativeElement?.srcObject) {
+        const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        const cap = (track as any).getCapabilities?.();
+        if (cap && 'torch' in cap) {
+          this.supportsTorch.set(true);
+        }
+      }
+    } catch {
+      this.supportsTorch.set(false);
+    }
+  }
+
+  async toggleTorch(): Promise<void> {
+    try {
+      if (this.posVideoRef?.nativeElement?.srcObject) {
+        const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        const nextState = !this.isTorchOn();
+        await (track as any).applyConstraints({ advanced: [{ torch: nextState }] });
+        this.isTorchOn.set(nextState);
+      }
+    } catch {
+      this.toastService.error('Torch toggle not supported on this device');
+    }
+  }
+
+  handlePosBarcodeDetected(code: string): void {
+    const now = Date.now();
+    // 1.5s cooldown suppression for identical code
+    if (now - this.lastScanTimestamp < 1500 && this.lastScannedCode === code) {
+      return;
+    }
+    this.lastScanTimestamp = now;
+    this.lastScannedCode = code;
+
+    // Trigger audio beep & vibration
+    this.playFeedbackAudio();
+
+    // Fast lookup and add to cart
+    this.api.lookupBarcode(code).subscribe({
+      next: (res) => {
+        if (res.data.found && res.data.product) {
+          this.addToCart(res.data.product);
+          this.scannerFlashMsg.set(`✓ Added: ${res.data.product.name}`);
+          setTimeout(() => {
+            this.scannerFlashMsg.set(null);
+          }, 1800);
+        } else {
+          this.scannerFlashMsg.set(`⚠️ Barcode '${code}' not found in catalog`);
+          setTimeout(() => {
+            this.scannerFlashMsg.set(null);
+          }, 2000);
+        }
+      },
+    });
+  }
+
+  closePosCameraScanner(): void {
+    this.stopPosCamera();
+    this.showCameraScanner.set(false);
+  }
+
+  stopPosCamera(): void {
+    if (this.posScannerControls) {
+      this.posScannerControls.stop();
+      this.posScannerControls = null;
+    }
+    if (this.posVideoRef?.nativeElement?.srcObject) {
+      const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
+      stream.getTracks().forEach((t) => t.stop());
+      this.posVideoRef.nativeElement.srcObject = null;
+    }
+    this.isTorchOn.set(false);
+  }
+
+  private playFeedbackAudio(): void {
+    if (navigator.vibrate) navigator.vibrate(100);
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1400, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      }
+    } catch {
+      // Audio autoplay policy
+    }
+  }
+
+  // --- CART MANAGEMENT ---
   addToCart(product: Product): void {
     if (product.currentStock <= 0) {
       this.toastService.error(`'${product.name}' is out of stock!`);
@@ -982,7 +1416,32 @@ export class SalesComponent implements OnInit {
     this.activeInvoice.set(sale);
   }
 
+  // --- PDF DOWNLOAD & PRINT ---
+  downloadPdf(sale: Sale): void {
+    try {
+      this.pdfService.generateInvoicePdf(sale);
+      this.toastService.success(`Downloaded Invoice_${sale.invoiceNumber}.pdf`);
+    } catch (err: any) {
+      this.toastService.error('Failed to generate PDF: ' + err.message);
+    }
+  }
+
   printInvoice(): void {
     window.print();
+  }
+
+  shareInvoice(sale: Sale): void {
+    if (navigator.share) {
+      navigator.share({
+        title: `Invoice ${sale.invoiceNumber}`,
+        text: `Tax Invoice from Inventory ERP\nInvoice No: ${sale.invoiceNumber}\nAmount: ₹${sale.grandTotal.toFixed(2)}\nCustomer: ${sale.customerName}\nDate: ${new Date(sale.saleDate).toLocaleDateString()}`,
+      }).catch(() => {});
+    } else {
+      // WhatsApp fallback link
+      const text = encodeURIComponent(
+        `Invoice: ${sale.invoiceNumber}\nTotal: ₹${sale.grandTotal.toFixed(2)}\nThank you for your purchase!`
+      );
+      window.open(`https://wa.me/?text=${text}`, '_blank');
+    }
   }
 }

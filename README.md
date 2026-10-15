@@ -2,8 +2,13 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-v22+-green.svg)](https://nodejs.org/)
 [![Angular](https://img.shields.io/badge/Angular-v21+-red.svg)](https://angular.dev/)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Production-black?logo=vercel)](https://client-six-mu-91.vercel.app)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas%20%2F%20Embedded-brightgreen.svg)](https://www.mongodb.com/)
 [![License](https://img.shields.io/badge/Academic-MCA%20Mini%20Project-blue.svg)]()
+
+> 🌐 **Live Vercel Production URL:** **[https://client-six-mu-91.vercel.app](https://client-six-mu-91.vercel.app)**
+>
+> 📦 **GitHub Repository:** **[https://github.com/Gauravsapkal/Inventory-mgmt-system](https://github.com/Gauravsapkal/Inventory-mgmt-system)**
 
 A complete, production-grade **Inventory Management & Point of Sale (POS) System** featuring real-time **phone-camera barcode scanning** (EAN-13, EAN-8, UPC-A, Code-128), atomic stock validation, append-only audit trail logging, print-ready tax invoices, and purpose-designed responsive interfaces for mobile (360x800px) and desktop (1366px+).
 

@@ -7,7 +7,12 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas%20%2F%20Embedded-brightgreen.svg)](https://www.mongodb.com/)
 [![License](https://img.shields.io/badge/Academic-MCA%20Mini%20Project-blue.svg)]()
 
-> 🌐 **Live Vercel Production URL:** **[https://client-six-mu-91.vercel.app](https://client-six-mu-91.vercel.app)**
+> 🌐 **Live Vercel Production Frontend:** **[https://client-six-mu-91.vercel.app](https://client-six-mu-91.vercel.app)**
+>
+> 🚀 **Live Render Production API:** **[https://shree-ganesh-kirana-api.onrender.com](https://shree-ganesh-kirana-api.onrender.com)**  
+> *(Health Check: [https://shree-ganesh-kirana-api.onrender.com/api/health](https://shree-ganesh-kirana-api.onrender.com/api/health))*
+>
+> ☁️ **Cloud Database:** **MongoDB Atlas (AWS Mumbai - ap-south-1)**
 >
 > 📦 **GitHub Repository:** **[https://github.com/Gauravsapkal/Inventory-mgmt-system](https://github.com/Gauravsapkal/Inventory-mgmt-system)**
 

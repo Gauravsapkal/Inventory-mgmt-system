@@ -6,6 +6,7 @@
   "outputDirectory": "client/dist/client/browser",
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://shree-ganesh-kirana-api.onrender.com/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

@@ -14,15 +14,16 @@ export async function authenticate(
   next: NextFunction
 ): Promise<void> {
   try {
+    let token: string | undefined;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      sendError(res, 'Authentication required. No token provided.', 401);
-      return;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (typeof req.query.token === 'string') {
+      token = req.query.token;
     }
 
-    const token = authHeader.split(' ')[1];
     if (!token) {
-      sendError(res, 'Authentication token missing.', 401);
+      sendError(res, 'Authentication required. No token provided.', 401);
       return;
     }
 

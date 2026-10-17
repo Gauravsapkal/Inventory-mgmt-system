@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: shree-ganesh-kirana-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_NAME
+        value: "System Administrator"
+      - key: ADMIN_EMAIL
+        value: "admin@inventory.local"
+      - key: ADMIN_PASSWORD
+        value: "Admin@123456"

@@ -338,14 +338,18 @@ export class ReportsComponent implements OnInit {
     this.toast.success(`Exported ${filename}`);
   }
 
-  downloadReportPdf(): void {
+  async downloadReportPdf(): Promise<void> {
     if (this.activeTab === 'inventory') {
       if (this.inventoryReport().length === 0) {
         this.toast.error('No inventory items to generate report.');
         return;
       }
-      this.pdfService.generateInventoryReportPdf(this.inventoryReport());
-      this.toast.success('Inventory valuation PDF report downloaded!');
+      try {
+        await this.pdfService.generateInventoryReportPdf(this.inventoryReport());
+        this.toast.success('Inventory valuation PDF report downloaded!');
+      } catch (err: any) {
+        this.toast.error('Failed to generate report PDF: ' + err.message);
+      }
     } else {
       window.print();
     }

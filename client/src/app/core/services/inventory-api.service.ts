@@ -145,7 +145,7 @@ export class InventoryApiService {
     if (typeof window !== 'undefined') {
       const customApi = localStorage.getItem('ERP_API_URL');
       if (customApi) return customApi.replace(/\/+$/, '');
-      if (window.location.hostname === 'localhost' && window.location.port === '4200') {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://localhost:5000/api';
       }
       return '/api';

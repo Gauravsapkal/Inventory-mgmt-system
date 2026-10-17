@@ -8,7 +8,7 @@ import { Product } from '../models/Product';
 import { seedInitialData } from '../scripts/seed';
 import { ENV } from '../config/env';
 
-describe('Inventory ERP API Test Suite', () => {
+describe('Shree Ganesh Kirana Store API Test Suite', () => {
   let adminToken = '';
   let testCategoryId = '';
   let testProductId = '';

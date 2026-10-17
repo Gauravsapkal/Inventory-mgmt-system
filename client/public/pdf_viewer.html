@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Renderer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body { margin: 0; padding: 20px; background: #f1f5f9; display: flex; flex-direction: column; align-items: center; }
+    canvas { background: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <canvas id="pdf-canvas"></canvas>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const pdfUrl = params.get('file') || '/sample_pdfs/Sample_Goods_Receipt_Note_GRN.pdf';
+    const pageNum = parseInt(params.get('page') || '1', 10);
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+      return pdf.getPage(pageNum);
+    }).then(page => {
+      const scale = 1.5;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.getElementById('pdf-canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport
+      };
+      return page.render(renderContext).promise;
+    }).then(() => {
+      document.body.setAttribute('data-rendered', 'true');
+    }).catch(err => {
+      console.error('Render error:', err);
+      document.body.setAttribute('data-error', err.message);
+    });
+  </script>
+</body>
+</html>

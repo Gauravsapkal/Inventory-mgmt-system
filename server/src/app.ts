@@ -19,11 +19,20 @@ import barcodeRoutes from './routes/barcodeRoutes';
 import stockMovementRoutes from './routes/stockMovementRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import reportRoutes from './routes/reportRoutes';
+import realtimeRoutes from './routes/realtimeRoutes';
+import path from 'path';
 
 const app: Application = express();
 
 // Security and Performance Middlewares
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+app.use('/docs', express.static(path.join(__dirname, '../../docs')));
+app.use('/scripts', express.static(path.join(__dirname, '../../scripts')));
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -59,7 +68,7 @@ app.get('/api/health', (req: Request, res: Response) => {
       status: dbStatus,
       readyState: dbState,
     },
-  }, 'Inventory ERP API Service is operational');
+  }, 'Shree Ganesh Kirana Store API Service is operational');
 });
 
 // API Routes
@@ -74,6 +83,7 @@ app.use('/api/barcodes', barcodeRoutes);
 app.use('/api/stock-movements', stockMovementRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/events', realtimeRoutes);
 
 // 404 Route Handler
 app.use((req: Request, res: Response) => {

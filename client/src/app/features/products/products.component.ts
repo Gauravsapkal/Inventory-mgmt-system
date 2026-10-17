@@ -2,12 +2,18 @@ import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } f
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators, FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute, Router } from '@angular/router';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product, Category } from '../../core/services/inventory-api.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
 import { PdfService } from '../../core/services/pdf.service';
+import { RealtimeService } from '../../core/services/realtime.service';
+import {
+  BarcodeScannerService,
+  VideoDeviceOption,
+  ScannerSession,
+  ScannerStatus,
+} from '../../core/services/barcode-scanner.service';
 
 @Component({
   selector: 'app-products',
@@ -330,29 +336,158 @@ import { PdfService } from '../../core/services/pdf.service';
       @if (showFormScanner()) {
         <div class="modal-backdrop scanner-modal-backdrop" (click)="closeFormCameraScanner()">
           <div class="modal-dialog scanner-modal-dialog card" (click)="$event.stopPropagation()">
-            <div class="modal-header">
+            <!-- Modal Header with Camera Controls -->
+            <div class="modal-header scanner-modal-header">
               <div>
-                <h3 style="margin: 0; font-size: 1.15rem;">📷 Scan Product Barcode</h3>
-                <span style="font-size: 0.8rem; color: var(--color-text-muted);">Point camera at barcode on packaging</span>
+                <h3 style="margin: 0; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <span>📷</span>
+                  <span>Scan Product Barcode</span>
+                </h3>
+                <span class="scanner-subtext">Supports EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, ITF & QR</span>
               </div>
-              <button class="icon-btn" (click)="closeFormCameraScanner()">&times;</button>
+              <div class="header-tools">
+                @if (isTorchAvailable()) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    (click)="toggleTorch()"
+                    [title]="isTorchOn() ? 'Turn torch off' : 'Turn torch on'"
+                  >
+                    {{ isTorchOn() ? '🔦 On' : '💡 Torch' }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  (click)="toggleSound()"
+                  [title]="soundEnabled() ? 'Mute sound' : 'Enable sound'"
+                >
+                  {{ soundEnabled() ? '🔊' : '🔇' }}
+                </button>
+                <button class="icon-btn" (click)="closeFormCameraScanner()" title="Close scanner">&times;</button>
+              </div>
             </div>
 
-            <div class="scanner-viewport-wrapper">
-              <video #formScannerVideo class="scanner-video" playsinline webkit-playsinline muted autoplay></video>
-              <div class="scanner-overlay">
-                <div class="laser-scanner-line"></div>
-              </div>
-            </div>
-
-            @if (scannerError()) {
-              <div class="alert alert-danger" style="margin-top: 0.75rem; padding: 0.5rem; font-size: 0.8rem; border-radius: 6px; background: #fee2e2; color: #b91c1c;">
-                {{ scannerError() }}
+            <!-- Camera Selector Dropdown (if multiple cameras exist) -->
+            @if (availableCameras().length > 1) {
+              <div class="camera-select-row">
+                <label for="formCameraSelect" class="camera-select-label">Camera:</label>
+                <select
+                  id="formCameraSelect"
+                  class="form-control camera-select"
+                  [ngModel]="selectedCameraId()"
+                  (ngModelChange)="onCameraChange($event)"
+                >
+                  @for (cam of availableCameras(); track cam.deviceId) {
+                    <option [value]="cam.deviceId">{{ cam.label }}</option>
+                  }
+                </select>
               </div>
             }
 
-            <div class="modal-footer" style="margin-top: 1rem; padding-top: 0.75rem;">
-              <button type="button" class="btn btn-secondary" (click)="closeFormCameraScanner()">Cancel</button>
+            <!-- Viewport & Target Area -->
+            <div class="scanner-viewport-wrapper">
+              <video #formScannerVideo class="scanner-video" playsinline webkit-playsinline muted autoplay></video>
+              <div class="scanner-reticle-box">
+                <div class="laser-scanner-line"></div>
+              </div>
+              <div class="viewport-instructions">
+                <span>Place the complete barcode inside the scanning area. Keep steady and well lit.</span>
+              </div>
+            </div>
+
+            <!-- Live Status Pill / Live Badge -->
+            <div class="scanner-status-pill" [attr.data-status]="scannerStatus()">
+              @if (scannerStatus() === 'camera_starting') {
+                <span class="status-indicator">⏳</span>
+              } @else if (scannerStatus() === 'scanning') {
+                <span class="status-indicator">🔍</span>
+              } @else if (scannerStatus() === 'detected') {
+                <span class="status-indicator">✅</span>
+              } @else if (scannerStatus() === 'permission_denied' || scannerStatus() === 'no_camera' || scannerStatus() === 'error') {
+                <span class="status-indicator">⚠️</span>
+              } @else {
+                <span class="status-indicator">ℹ️</span>
+              }
+              <span class="status-text">{{ statusMessage() || 'Ready to scan' }}</span>
+            </div>
+
+            <!-- Interactive Barcode Result / Duplicate Product Alert -->
+            @if (scannedBarcode()) {
+              <div class="scanned-result-panel">
+                @if (isCheckingBarcode()) {
+                  <div class="lookup-spinner-row">
+                    <span class="spinner-inline"></span>
+                    <span>Checking inventory database for '{{ scannedBarcode() }}'...</span>
+                  </div>
+                } @else if (existingProductMatch()) {
+                  <!-- DUPLICATE ALERT: Product already exists in MongoDB -->
+                  <div class="duplicate-alert-card">
+                    <div class="alert-icon">⚠️</div>
+                    <div class="alert-body">
+                      <div class="alert-title">Product Already Exists in Inventory!</div>
+                      <div class="product-preview-name">{{ existingProductMatch()!.name }}</div>
+                      <div class="product-preview-meta">
+                        <span>SKU: <strong>{{ existingProductMatch()!.sku }}</strong></span>
+                        <span>Price: <strong>₹{{ existingProductMatch()!.sellingPrice.toFixed(2) }}</strong></span>
+                        <span>Stock: <strong>{{ existingProductMatch()!.currentStock }} {{ existingProductMatch()!.uom }}</strong></span>
+                      </div>
+                      <div class="alert-actions">
+                        <button type="button" class="btn btn-primary btn-sm" (click)="editFoundProduct()">
+                          ✏️ Edit This Product Instead
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" (click)="resumeScanning()">
+                          🔄 Scan Another
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                } @else {
+                  <!-- NEW PRODUCT: Barcode available to use -->
+                  <div class="new-barcode-card">
+                    <div class="new-barcode-header">
+                      <span class="success-icon">✨</span>
+                      <div>
+                        <div class="new-barcode-title">Product not found in database; enter details to add it.</div>
+                        <div class="barcode-display font-mono">
+                          <span>{{ scannedBarcode() }}</span>
+                          <span class="format-badge">{{ scannedBarcodeFormat() }}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="new-barcode-actions">
+                      <button type="button" class="btn btn-success btn-sm" (click)="applyScannedBarcodeAndClose()">
+                        ✓ Use This Barcode & Complete Form
+                      </button>
+                      <button type="button" class="btn btn-ghost btn-sm" (click)="resumeScanning()">
+                        Scan Another
+                      </button>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Manual Barcode Entry Fallback (For webcams with fixed focus or damaged barcodes) -->
+            <div class="manual-fallback-section">
+              <div class="manual-fallback-label">Can't focus or blurry barcode? Enter barcode manually:</div>
+              <div class="manual-input-group">
+                <input
+                  type="text"
+                  class="form-control font-mono manual-input"
+                  placeholder="Enter barcode digits (e.g. 8901234567890)"
+                  [(ngModel)]="manualBarcodeInput"
+                  [ngModelOptions]="{standalone: true}"
+                  (keydown.enter)="applyManualBarcode()"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" (click)="applyManualBarcode()">
+                  Look Up
+                </button>
+              </div>
+            </div>
+
+            <div class="modal-footer scanner-footer">
+              <button type="button" class="btn btn-secondary" (click)="closeFormCameraScanner()">Close Scanner</button>
             </div>
           </div>
         </div>
@@ -687,15 +822,53 @@ import { PdfService } from '../../core/services/pdf.service';
     }
 
     .scanner-modal-dialog {
-      max-width: 440px;
+      max-width: 520px;
       padding: 1.25rem;
+    }
+
+    .scanner-modal-header {
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+    }
+
+    .scanner-subtext {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      display: block;
+      margin-top: 0.15rem;
+    }
+
+    .header-tools {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .camera-select-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.82rem;
+    }
+
+    .camera-select-label {
+      font-weight: 600;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+    }
+
+    .camera-select {
+      flex: 1;
+      font-size: 0.82rem;
+      padding: 0.3rem 0.6rem;
     }
 
     .scanner-viewport-wrapper {
       position: relative;
       width: 100%;
-      height: 260px;
-      background: #000;
+      height: 270px;
+      background: #090d16;
       border-radius: var(--radius-md);
       overflow: hidden;
       display: flex;
@@ -706,31 +879,190 @@ import { PdfService } from '../../core/services/pdf.service';
     .scanner-video {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain; /* Prevents cropping guard bars of horizontal 1D barcodes */
+      background: #000;
     }
 
-    .scanner-overlay {
+    .scanner-reticle-box {
       position: absolute;
-      inset: 20px;
-      border: 2px dashed rgba(255, 255, 255, 0.75);
-      border-radius: var(--radius-md);
+      width: 86%;
+      height: 48%;
+      border: 2px dashed rgba(59, 130, 246, 0.9);
+      border-radius: 8px;
       pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     .laser-scanner-line {
-      width: 100%;
+      width: 96%;
       height: 2px;
       background: #ef4444;
-      box-shadow: 0 0 8px #ef4444;
+      box-shadow: 0 0 10px #ef4444;
       animation: scanLaser 2s infinite ease-in-out;
     }
 
     @keyframes scanLaser {
-      0%, 100% { transform: translateY(-70px); }
-      50% { transform: translateY(70px); }
+      0%, 100% { transform: translateY(-52px); }
+      50% { transform: translateY(52px); }
+    }
+
+    .viewport-instructions {
+      position: absolute;
+      bottom: 8px;
+      left: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      color: #fff;
+      font-size: 0.72rem;
+      text-align: center;
+      padding: 0.3rem 0.5rem;
+      border-radius: 4px;
+      pointer-events: none;
+    }
+
+    .scanner-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      background: #f1f5f9;
+      color: #334155;
+      font-weight: 500;
+
+      &[data-status="scanning"] {
+        background: #eff6ff;
+        color: #1d4ed8;
+      }
+      &[data-status="detected"] {
+        background: #ecfdf5;
+        color: #047857;
+      }
+      &[data-status="permission_denied"], &[data-status="no_camera"], &[data-status="error"] {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
+    }
+
+    .scanned-result-panel {
+      margin-top: 0.75rem;
+    }
+
+    .lookup-spinner-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+      color: var(--color-primary);
+      padding: 0.5rem;
+    }
+
+    .spinner-inline {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #cbd5e1;
+      border-top-color: var(--color-primary);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    .duplicate-alert-card {
+      background: #fffbeb;
+      border: 1px solid #fef3c7;
+      border-left: 4px solid #f59e0b;
+      border-radius: 6px;
+      padding: 0.75rem;
+      display: flex;
+      gap: 0.6rem;
+
+      .alert-icon { font-size: 1.25rem; }
+      .alert-body { flex: 1; }
+      .alert-title { font-weight: 700; font-size: 0.85rem; color: #92400e; }
+      .product-preview-name { font-weight: 600; font-size: 0.9rem; color: #1e293b; margin: 0.2rem 0; }
+      .product-preview-meta {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        font-size: 0.78rem;
+        color: #64748b;
+        margin-bottom: 0.5rem;
+      }
+      .alert-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+    }
+
+    .new-barcode-card {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-left: 4px solid #22c55e;
+      border-radius: 6px;
+      padding: 0.75rem;
+
+      .new-barcode-header {
+        display: flex;
+        gap: 0.6rem;
+        align-items: flex-start;
+      }
+      .success-icon { font-size: 1.25rem; }
+      .new-barcode-title { font-size: 0.82rem; font-weight: 600; color: #166534; }
+      .barcode-display {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin: 0.25rem 0 0.5rem;
+      }
+      .format-badge {
+        font-size: 0.7rem;
+        background: #dcfce7;
+        color: #15803d;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-weight: 700;
+      }
+      .new-barcode-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+    }
+
+    .manual-fallback-section {
+      margin-top: 0.75rem;
+      padding-top: 0.65rem;
+      border-top: 1px dashed var(--color-border);
+    }
+
+    .manual-fallback-label {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .manual-input-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .manual-input {
+      font-size: 0.85rem;
+      padding: 0.35rem 0.6rem;
+    }
+
+    .scanner-footer {
+      margin-top: 0.75rem;
+      padding-top: 0.5rem;
     }
   `],
 })
@@ -741,7 +1073,9 @@ export class ProductsComponent implements OnInit, OnDestroy {
   toastService = inject(ToastService);
   authService = inject(AuthService);
   pdfService = inject(PdfService);
+  private realtime = inject(RealtimeService);
   private route = inject(ActivatedRoute);
+  private realtimeSubs: any[] = [];
 
   products = signal<Product[]>([]);
   categories = signal<Category[]>([]);
@@ -761,11 +1095,25 @@ export class ProductsComponent implements OnInit, OnDestroy {
   editingProduct = signal<Product | null>(null);
 
   // Inline Form Camera Scanner
+  barcodeScannerService = inject(BarcodeScannerService);
   showFormScanner = signal<boolean>(false);
   scannerError = signal<string | null>(null);
   @ViewChild('formScannerVideo') formScannerVideo?: ElementRef<HTMLVideoElement>;
-  private formCodeReader?: BrowserMultiFormatReader;
-  private formScannerControls?: IScannerControls;
+  private formScannerSession: ScannerSession | null = null;
+
+  availableCameras = signal<VideoDeviceOption[]>([]);
+  selectedCameraId = signal<string>('');
+  isTorchAvailable = signal<boolean>(false);
+  isTorchOn = signal<boolean>(false);
+  soundEnabled = signal<boolean>(true);
+  scannerStatus = signal<ScannerStatus>('idle');
+  statusMessage = signal<string>('');
+
+  scannedBarcode = signal<string | null>(null);
+  scannedBarcodeFormat = signal<string>('');
+  existingProductMatch = signal<Product | null>(null);
+  isCheckingBarcode = signal<boolean>(false);
+  manualBarcodeInput = '';
 
   productForm = this.fb.group({
     name: ['', [Validators.required, Validators.minLength(2)]],
@@ -797,6 +1145,16 @@ export class ProductsComponent implements OnInit, OnDestroy {
       }
       this.loadProducts();
     });
+
+    // Real-time synchronization when stock or products change from any terminal
+    this.realtimeSubs.push(
+      this.realtime.stockUpdated$.subscribe(() => {
+        this.loadProducts();
+      }),
+      this.realtime.productChanged$.subscribe(() => {
+        this.loadProducts();
+      })
+    );
   }
 
   loadCategories(): void {
@@ -914,8 +1272,12 @@ export class ProductsComponent implements OnInit, OnDestroy {
         this.closeModal();
         this.loadProducts();
       },
-      error: () => {
+      error: (err: any) => {
         this.isSubmitting.set(false);
+        const errorMsg =
+          err?.error?.message ||
+          (this.editingProduct() ? 'Failed to update product' : 'Failed to create product');
+        this.toastService.error(errorMsg);
       },
     });
   }
@@ -931,14 +1293,35 @@ export class ProductsComponent implements OnInit, OnDestroy {
     }
   }
 
-  downloadBarcodeSticker(prod: Product): void {
-    this.pdfService.generateBarcodeStickerPdf(prod);
-    this.toastService.info(`Barcode sticker generated for '${prod.sku}'`);
+  async downloadBarcodeSticker(prod: Product): Promise<void> {
+    try {
+      await this.pdfService.generateBarcodeStickerPdf(prod);
+      this.toastService.success(`Barcode sticker generated for '${prod.sku}'`);
+    } catch (err: any) {
+      this.toastService.error('Failed to generate sticker: ' + err.message);
+    }
   }
 
-  openFormCameraScanner(): void {
+  async openFormCameraScanner(): Promise<void> {
     this.scannerError.set(null);
+    this.scannedBarcode.set(null);
+    this.scannedBarcodeFormat.set('');
+    this.existingProductMatch.set(null);
+    this.isCheckingBarcode.set(false);
+    this.manualBarcodeInput = '';
     this.showFormScanner.set(true);
+
+    try {
+      const devices = await this.barcodeScannerService.getAvailableVideoDevices();
+      this.availableCameras.set(devices);
+      if (devices.length > 0 && !this.selectedCameraId()) {
+        const rear = devices.find((d) => d.isRear);
+        this.selectedCameraId.set(rear ? rear.deviceId : devices[0].deviceId);
+      }
+    } catch {
+      // Permission not yet granted
+    }
+
     setTimeout(() => {
       this.startFormCamera();
     }, 150);
@@ -947,100 +1330,154 @@ export class ProductsComponent implements OnInit, OnDestroy {
   private async startFormCamera(): Promise<void> {
     if (!this.formScannerVideo?.nativeElement) return;
     try {
-      this.formCodeReader = new BrowserMultiFormatReader();
-
-      const constraintProfiles: MediaStreamConstraints[] = [
-        {
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        },
-        {
-          video: { facingMode: 'environment' },
-          audio: false,
-        },
-        {
-          video: true,
-          audio: false,
-        },
-      ];
-
-      let stream: MediaStream | null = null;
-      for (const constraints of constraintProfiles) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break;
-        } catch {
-          // Fall back to next constraint profile
-        }
+      if (this.formScannerSession) {
+        this.formScannerSession.stop();
+        this.formScannerSession = null;
       }
 
-      if (!stream) {
-        throw new Error('Unable to access camera. Please grant camera permission.');
-      }
+      this.formScannerSession = await this.barcodeScannerService.startSession({
+        videoElement: this.formScannerVideo.nativeElement,
+        preferredDeviceId: this.selectedCameraId(),
+        preferRear: true,
+        soundEnabled: this.soundEnabled(),
+        onScan: (result) => {
+          this.handleScannedBarcode(result.code, result.format);
+        },
+        onError: (err) => {
+          this.scannerError.set(err);
+        },
+        onStatusChange: (status, msg) => {
+          this.scannerStatus.set(status);
+          this.statusMessage.set(msg);
+        },
+      });
 
-      const videoEl = this.formScannerVideo.nativeElement;
-      videoEl.srcObject = stream;
-      await videoEl.play();
+      this.isTorchAvailable.set(this.formScannerSession.isTorchSupported());
+      this.isTorchOn.set(false);
 
-      this.formScannerControls = await this.formCodeReader.decodeFromVideoElement(
-        videoEl,
-        (result, error) => {
-          if (result) {
-            const code = result.getText().trim();
-            if (code) {
-              this.playBeep();
-              this.productForm.patchValue({ barcode: code });
-              this.toastService.success(`Barcode scanned: ${code}`);
-              this.closeFormCameraScanner();
-            }
-          }
-        }
-      );
+      // Refresh camera devices list after permissions are granted
+      const devices = await this.barcodeScannerService.getAvailableVideoDevices();
+      this.availableCameras.set(devices);
     } catch (err: any) {
       this.scannerError.set(err?.message || 'Camera permission denied or camera device unavailable.');
     }
   }
 
-  closeFormCameraScanner(): void {
-    if (this.formScannerControls) {
-      this.formScannerControls.stop();
-      this.formScannerControls = undefined;
+  async onCameraChange(deviceId: string): Promise<void> {
+    this.selectedCameraId.set(deviceId);
+    if (this.formScannerSession) {
+      try {
+        await this.formScannerSession.switchDevice(deviceId);
+        this.isTorchAvailable.set(this.formScannerSession.isTorchSupported());
+        this.isTorchOn.set(false);
+      } catch (err: any) {
+        this.toastService.error('Failed to switch camera: ' + err.message);
+      }
     }
-    if (this.formScannerVideo?.nativeElement?.srcObject) {
-      const stream = this.formScannerVideo.nativeElement.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      this.formScannerVideo.nativeElement.srcObject = null;
-    }
-    this.showFormScanner.set(false);
   }
 
-  private playBeep(): void {
-    if (navigator.vibrate) navigator.vibrate(100);
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(1400, ctx.currentTime);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.12);
-      }
-    } catch {
-      // Audio autoplay policy
+  async toggleTorch(): Promise<void> {
+    if (!this.formScannerSession) return;
+    const nextState = !this.isTorchOn();
+    const success = await this.formScannerSession.setTorch(nextState);
+    if (success) {
+      this.isTorchOn.set(nextState);
+    } else {
+      this.toastService.info('Torch not supported on this camera/lens.');
     }
+  }
+
+  toggleSound(): void {
+    const next = !this.soundEnabled();
+    this.soundEnabled.set(next);
+    this.toastService.info(next ? 'Sound beep enabled' : 'Sound beep muted');
+  }
+
+  handleScannedBarcode(rawCode: string, format?: string): void {
+    const cleanCode = this.barcodeScannerService.cleanBarcode(rawCode);
+    if (!cleanCode) return;
+
+    const detectedFormat = format || this.barcodeScannerService.identifyFormat(cleanCode);
+    this.scannedBarcode.set(cleanCode);
+    this.scannedBarcodeFormat.set(detectedFormat);
+    this.existingProductMatch.set(null);
+    this.isCheckingBarcode.set(true);
+
+    this.api.lookupBarcode(cleanCode).subscribe({
+      next: (res) => {
+        this.isCheckingBarcode.set(false);
+        if (res.data?.found && res.data.product) {
+          // Product already exists in inventory!
+          this.existingProductMatch.set(res.data.product);
+          this.statusMessage.set('Product already exists in inventory!');
+          this.toastService.warning(`Barcode '${cleanCode}' is already registered to '${res.data.product.name}'`);
+        } else {
+          // New product!
+          this.existingProductMatch.set(null);
+          this.statusMessage.set('Product not found; enter details to add it.');
+          this.toastService.success(`Scanned: ${cleanCode} (${detectedFormat})`);
+        }
+      },
+      error: () => {
+        this.isCheckingBarcode.set(false);
+        this.statusMessage.set('Lookup failed; enter details to add it.');
+      },
+    });
+  }
+
+  applyScannedBarcodeAndClose(): void {
+    const code = this.scannedBarcode();
+    if (!code) return;
+
+    this.productForm.patchValue({ barcode: code });
+    if (!this.productForm.get('sku')?.value) {
+      // Suggest automatic SKU if empty
+      const suffix = code.length > 6 ? code.slice(-6) : code;
+      this.productForm.patchValue({ sku: `PRD-${suffix}` });
+    }
+    this.toastService.success(`Barcode ${code} applied to product form`);
+    this.closeFormCameraScanner();
+  }
+
+  editFoundProduct(): void {
+    const existing = this.existingProductMatch();
+    if (!existing) return;
+    this.closeFormCameraScanner();
+    this.editProduct(existing);
+    this.toastService.info(`Editing existing product '${existing.name}'`);
+  }
+
+  resumeScanning(): void {
+    this.scannedBarcode.set(null);
+    this.scannedBarcodeFormat.set('');
+    this.existingProductMatch.set(null);
+    this.isCheckingBarcode.set(false);
+    this.formScannerSession?.unlockScan();
+  }
+
+  applyManualBarcode(): void {
+    const code = this.manualBarcodeInput.trim();
+    if (!code) {
+      this.toastService.warning('Please enter a barcode number');
+      return;
+    }
+    this.handleScannedBarcode(code, 'Manual');
+    this.manualBarcodeInput = '';
+  }
+
+  closeFormCameraScanner(): void {
+    if (this.formScannerSession) {
+      this.formScannerSession.stop();
+      this.formScannerSession = null;
+    }
+    this.showFormScanner.set(false);
+    this.scannedBarcode.set(null);
+    this.existingProductMatch.set(null);
+    this.scannerStatus.set('idle');
   }
 
   ngOnDestroy(): void {
     this.closeFormCameraScanner();
+    this.realtimeSubs.forEach(s => s.unsubscribe());
   }
 }

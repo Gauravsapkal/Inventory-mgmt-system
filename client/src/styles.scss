@@ -375,6 +375,10 @@ select.form-control {
     background-color: #0f172a;
     color: #ffffff;
   }
+  &.toast-warning {
+    background-color: #d97706;
+    color: #ffffff;
+  }
 }
 
 @keyframes slideIn {

@@ -2,8 +2,11 @@ import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } f
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute } from '@angular/router';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product, Sale } from '../../core/services/inventory-api.service';
+import {
+  BarcodeScannerService,
+  ScannerSession,
+} from '../../core/services/barcode-scanner.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -382,9 +385,15 @@ interface CartItem {
             <div class="invoice-sheet" id="printable-invoice">
               <div class="invoice-top">
                 <div class="store-info">
-                  <h2>MCA INVENTORY SYSTEM</h2>
-                  <p>123 College Campus Boulevard, Tech Block</p>
-                  <p>GSTIN: 07AAAAA0000A1Z5 &bull; Phone: +91 98765 43210</p>
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                    <img src="assets/store-logo.png" alt="Shree Ganesh Kirana Store" style="width: 44px; height: 44px; border-radius: 6px; object-fit: contain;" />
+                    <div>
+                      <h2 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: #1a6b34;">SHREE GANESH KIRANA STORE</h2>
+                      <p style="margin: 0; font-size: 0.8rem; color: #64748b;">Inventory Management System &bull; Daily Groceries</p>
+                    </div>
+                  </div>
+                  <p>Main Market Road, Opp. Ganesh Temple</p>
+                  <p>Phone: +91 98765 43210 &bull; Daily: 7:00 AM - 10:00 PM</p>
                 </div>
                 <div class="invoice-meta-tag">
                   <h3>TAX INVOICE</h3>
@@ -849,13 +858,14 @@ interface CartItem {
     .pos-camera-video {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
+      background: #000;
     }
 
     .pos-reticle {
       position: absolute;
-      width: 220px;
-      height: 140px;
+      width: min(88%, 350px);
+      height: 160px;
       border: 1px solid rgba(255, 255, 255, 0.25);
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
       border-radius: 8px;
@@ -1072,8 +1082,8 @@ export class SalesComponent implements OnInit, OnDestroy {
   isTorchOn = signal<boolean>(false);
 
   @ViewChild('posVideoElement') posVideoRef?: ElementRef<HTMLVideoElement>;
-  private posCodeReader: BrowserMultiFormatReader | null = null;
-  private posScannerControls: IScannerControls | null = null;
+  private barcodeScannerService = inject(BarcodeScannerService);
+  private posScannerSession: ScannerSession | null = null;
   private lastScanTimestamp = 0;
   private lastScannedCode = '';
 
@@ -1155,72 +1165,40 @@ export class SalesComponent implements OnInit, OnDestroy {
   async startPosCamera(): Promise<void> {
     if (!this.posVideoRef?.nativeElement) return;
     try {
-      this.posCodeReader = new BrowserMultiFormatReader();
-
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      };
-
-      try {
-        this.posScannerControls = await this.posCodeReader.decodeFromConstraints(
-          constraints,
-          this.posVideoRef.nativeElement,
-          (result) => {
-            if (result) {
-              this.handlePosBarcodeDetected(result.getText());
-            }
-          }
-        );
-      } catch (constraintErr) {
-        // Fallback for devices that reject specific resolution constraints
-        this.posScannerControls = await this.posCodeReader.decodeFromConstraints(
-          { video: { facingMode: 'environment' } },
-          this.posVideoRef.nativeElement,
-          (result) => {
-            if (result) {
-              this.handlePosBarcodeDetected(result.getText());
-            }
-          }
-        );
+      if (this.posScannerSession) {
+        this.posScannerSession.stop();
+        this.posScannerSession = null;
       }
 
-      this.checkTorchCapability();
+      this.posScannerSession = await this.barcodeScannerService.startSession({
+        videoElement: this.posVideoRef.nativeElement,
+        preferRear: true,
+        onScan: (result) => {
+          this.handlePosBarcodeDetected(result.code);
+          setTimeout(() => this.posScannerSession?.unlockScan(), 1200);
+        },
+        onError: (err) => {
+          this.toastService.error('Camera could not be activated: ' + err);
+          this.showCameraScanner.set(false);
+        },
+      });
+
+      this.supportsTorch.set(this.posScannerSession.isTorchSupported());
+      this.isTorchOn.set(false);
     } catch (err: any) {
-      this.toastService.error('Camera could not be activated: ' + (err.message || 'Permission denied'));
+      this.toastService.error('Camera could not be activated: ' + (err?.message || 'Permission denied'));
       this.showCameraScanner.set(false);
     }
   }
 
-  private checkTorchCapability(): void {
-    try {
-      if (this.posVideoRef?.nativeElement?.srcObject) {
-        const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        const cap = (track as any).getCapabilities?.();
-        if (cap && 'torch' in cap) {
-          this.supportsTorch.set(true);
-        }
-      }
-    } catch {
-      this.supportsTorch.set(false);
-    }
-  }
-
   async toggleTorch(): Promise<void> {
-    try {
-      if (this.posVideoRef?.nativeElement?.srcObject) {
-        const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        const nextState = !this.isTorchOn();
-        await (track as any).applyConstraints({ advanced: [{ torch: nextState }] });
-        this.isTorchOn.set(nextState);
-      }
-    } catch {
-      this.toastService.error('Torch toggle not supported on this device');
+    if (!this.posScannerSession) return;
+    const nextState = !this.isTorchOn();
+    const success = await this.posScannerSession.setTorch(nextState);
+    if (success) {
+      this.isTorchOn.set(nextState);
+    } else {
+      this.toastService.info('Torch not supported on this device');
     }
   }
 
@@ -1261,14 +1239,9 @@ export class SalesComponent implements OnInit, OnDestroy {
   }
 
   stopPosCamera(): void {
-    if (this.posScannerControls) {
-      this.posScannerControls.stop();
-      this.posScannerControls = null;
-    }
-    if (this.posVideoRef?.nativeElement?.srcObject) {
-      const stream = this.posVideoRef.nativeElement.srcObject as MediaStream;
-      stream.getTracks().forEach((t) => t.stop());
-      this.posVideoRef.nativeElement.srcObject = null;
+    if (this.posScannerSession) {
+      this.posScannerSession.stop();
+      this.posScannerSession = null;
     }
     this.isTorchOn.set(false);
   }
@@ -1417,9 +1390,9 @@ export class SalesComponent implements OnInit, OnDestroy {
   }
 
   // --- PDF DOWNLOAD & PRINT ---
-  downloadPdf(sale: Sale): void {
+  async downloadPdf(sale: Sale): Promise<void> {
     try {
-      this.pdfService.generateInvoicePdf(sale);
+      await this.pdfService.generateInvoicePdf(sale);
       this.toastService.success(`Downloaded Invoice_${sale.invoiceNumber}.pdf`);
     } catch (err: any) {
       this.toastService.error('Failed to generate PDF: ' + err.message);
@@ -1434,12 +1407,12 @@ export class SalesComponent implements OnInit, OnDestroy {
     if (navigator.share) {
       navigator.share({
         title: `Invoice ${sale.invoiceNumber}`,
-        text: `Tax Invoice from Inventory ERP\nInvoice No: ${sale.invoiceNumber}\nAmount: ₹${sale.grandTotal.toFixed(2)}\nCustomer: ${sale.customerName}\nDate: ${new Date(sale.saleDate).toLocaleDateString()}`,
+        text: `Tax Invoice from Shree Ganesh Kirana Store\nInvoice No: ${sale.invoiceNumber}\nAmount: ₹${sale.grandTotal.toFixed(2)}\nCustomer: ${sale.customerName}\nDate: ${new Date(sale.saleDate).toLocaleDateString()}`,
       }).catch(() => {});
     } else {
       // WhatsApp fallback link
       const text = encodeURIComponent(
-        `Invoice: ${sale.invoiceNumber}\nTotal: ₹${sale.grandTotal.toFixed(2)}\nThank you for your purchase!`
+        `Shree Ganesh Kirana Store Invoice: ${sale.invoiceNumber}\nTotal: ₹${sale.grandTotal.toFixed(2)}\nThank you for your purchase!`
       );
       window.open(`https://wa.me/?text=${text}`, '_blank');
     }

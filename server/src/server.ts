@@ -9,7 +9,7 @@ async function bootstrap() {
     await seedInitialData();
 
     const server = app.listen(ENV.PORT, () => {
-      console.log(`🚀 Inventory ERP Backend running on http://localhost:${ENV.PORT}`);
+      console.log(`🚀 Shree Ganesh Kirana Store Backend running on http://localhost:${ENV.PORT}`);
       console.log(`📡 Health Check: http://localhost:${ENV.PORT}/api/health`);
     });
 

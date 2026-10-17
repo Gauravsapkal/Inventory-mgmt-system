@@ -6,6 +6,7 @@ import { Product } from '../models/Product';
 import { StockMovement } from '../models/StockMovement';
 import { sendSuccess, sendError } from '../utils/response';
 import { AuthenticatedRequest } from '../middlewares/auth';
+import { realtimeService } from '../services/realtimeService';
 
 export const saleSchema = z.object({
   body: z.object({
@@ -227,6 +228,24 @@ export async function createSale(req: AuthenticatedRequest, res: Response, next:
       const populatedSale = await Sale.findById(sale._id)
         .populate('processedBy', 'name email')
         .lean();
+
+      // Realtime notification to all connected clients (desktop & mobile)
+      realtimeService.broadcast('sale_created', {
+        invoiceNumber,
+        grandTotal,
+        customerName: sale.customerName,
+        itemsCount: preparedItems.length,
+      });
+
+      for (const record of updatedProducts) {
+        realtimeService.broadcast('stock_updated', {
+          productId: record.product._id,
+          productName: record.product.name,
+          previousQuantity: record.prevStock,
+          newQuantity: record.newStock,
+          movementType: 'sale',
+        });
+      }
 
       sendSuccess(res, populatedSale, 'Sale completed successfully', 201);
     } catch (atomicErr: any) {

@@ -2,6 +2,7 @@ import { Component, OnInit, OnDestroy, inject, signal, ViewChild, ElementRef, Af
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { InventoryApiService, DashboardStats } from '../../core/services/inventory-api.service';
+import { RealtimeService } from '../../core/services/realtime.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { Chart, registerables } from 'chart.js';
 
@@ -385,6 +386,7 @@ Chart.register(...registerables);
 })
 export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private api = inject(InventoryApiService);
+  private realtime = inject(RealtimeService);
   layout = inject(LayoutService);
 
   stats = signal<DashboardStats | null>(null);
@@ -394,9 +396,20 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private salesChartInstance: Chart | null = null;
   private categoryChartInstance: Chart | null = null;
+  private realtimeSubs: any[] = [];
 
   ngOnInit(): void {
     this.loadDashboard();
+
+    // Auto-update dashboard metrics in real-time when a sale happens on any device
+    this.realtimeSubs.push(
+      this.realtime.saleCreated$.subscribe(() => {
+        this.loadDashboard();
+      }),
+      this.realtime.stockUpdated$.subscribe(() => {
+        this.loadDashboard();
+      })
+    );
   }
 
   ngAfterViewInit(): void {
@@ -406,6 +419,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.salesChartInstance?.destroy();
     this.categoryChartInstance?.destroy();
+    this.realtimeSubs.forEach(s => s.unsubscribe());
   }
 
   loadDashboard(): void {

@@ -1,4 +1,5 @@
-# Inventory Management System with Phone-Camera Barcode Scanner Integration
+# Shree Ganesh Kirana Store — Inventory Management System
+*(with Phone-Camera Barcode Scanner Integration)*
 
 [![Node.js](https://img.shields.io/badge/Node.js-v22+-green.svg)](https://nodejs.org/)
 [![Angular](https://img.shields.io/badge/Angular-v21+-red.svg)](https://angular.dev/)

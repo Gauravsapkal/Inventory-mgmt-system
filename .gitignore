@@ -10,6 +10,8 @@ yarn-error.log*
 .env.local
 .env.*.local
 *.env
+database_backups/
+
 
 # Angular build outputs
 dist/

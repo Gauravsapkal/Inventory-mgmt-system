@@ -1,8 +1,11 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators, FormsModule } from '@angular/forms';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, StockMovement, Product } from '../../core/services/inventory-api.service';
+import {
+  BarcodeScannerService,
+  ScannerSession,
+} from '../../core/services/barcode-scanner.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -188,7 +191,7 @@ import { AuthService } from '../../core/services/auth.service';
       align-items: center;
       justify-content: center;
     }
-    .scanner-video { width: 100%; height: 100%; object-fit: cover; }
+    .scanner-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
     .scanner-overlay {
       position: absolute;
       inset: 20px;
@@ -228,8 +231,8 @@ export class StockMovementsComponent implements OnInit, OnDestroy {
   showAdjustScanner = signal<boolean>(false);
   scannerError = signal<string | null>(null);
   @ViewChild('adjustScannerVideo') adjustScannerVideo?: ElementRef<HTMLVideoElement>;
-  private adjustCodeReader?: BrowserMultiFormatReader;
-  private adjustScannerControls?: IScannerControls;
+  private barcodeScannerService = inject(BarcodeScannerService);
+  private adjustScannerSession: ScannerSession | null = null;
 
   adjustForm = this.fb.group({
     productId: ['', [Validators.required]],
@@ -281,46 +284,21 @@ export class StockMovementsComponent implements OnInit, OnDestroy {
   private async startAdjustCamera(): Promise<void> {
     if (!this.adjustScannerVideo?.nativeElement) return;
     try {
-      this.adjustCodeReader = new BrowserMultiFormatReader();
+      if (this.adjustScannerSession) {
+        this.adjustScannerSession.stop();
+        this.adjustScannerSession = null;
+      }
 
-      const constraintProfiles: MediaStreamConstraints[] = [
-        {
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
+      this.adjustScannerSession = await this.barcodeScannerService.startSession({
+        videoElement: this.adjustScannerVideo.nativeElement,
+        preferRear: true,
+        onScan: (result) => {
+          this.handleScannedAdjustBarcode(result.code);
         },
-        { video: { facingMode: 'environment' }, audio: false },
-        { video: true, audio: false },
-      ];
-
-      let stream: MediaStream | null = null;
-      for (const constraints of constraintProfiles) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break;
-        } catch {
-          // Fall back
-        }
-      }
-
-      if (!stream) {
-        throw new Error('Unable to access camera. Please grant camera permission.');
-      }
-
-      const videoEl = this.adjustScannerVideo.nativeElement;
-      videoEl.srcObject = stream;
-      await videoEl.play();
-
-      this.adjustScannerControls = await this.adjustCodeReader.decodeFromVideoElement(
-        videoEl,
-        (result, error) => {
-          if (result) {
-            const code = result.getText().trim();
-            if (code) {
-              this.handleScannedAdjustBarcode(code);
-            }
-          }
-        }
-      );
+        onError: (err) => {
+          this.scannerError.set(err);
+        },
+      });
     } catch (err: any) {
       this.scannerError.set(err?.message || 'Camera permission denied or camera device unavailable.');
     }
@@ -354,14 +332,9 @@ export class StockMovementsComponent implements OnInit, OnDestroy {
   }
 
   closeAdjustScanner(): void {
-    if (this.adjustScannerControls) {
-      this.adjustScannerControls.stop();
-      this.adjustScannerControls = undefined;
-    }
-    if (this.adjustScannerVideo?.nativeElement?.srcObject) {
-      const stream = this.adjustScannerVideo.nativeElement.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      this.adjustScannerVideo.nativeElement.srcObject = null;
+    if (this.adjustScannerSession) {
+      this.adjustScannerSession.stop();
+      this.adjustScannerSession = null;
     }
     this.showAdjustScanner.set(false);
   }

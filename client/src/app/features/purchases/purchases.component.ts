@@ -2,8 +2,11 @@ import { Component, OnInit, OnDestroy, ViewChild, ElementRef, inject, signal } f
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule, ActivatedRoute } from '@angular/router';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Purchase, Supplier, Product } from '../../core/services/inventory-api.service';
+import {
+  BarcodeScannerService,
+  ScannerSession,
+} from '../../core/services/barcode-scanner.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
 import { PdfService } from '../../core/services/pdf.service';
@@ -365,7 +368,8 @@ interface PurchaseLineItem {
     .scanner-video {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
+      background: #000;
     }
 
     .scanner-overlay {
@@ -411,8 +415,8 @@ export class PurchasesComponent implements OnInit, OnDestroy {
   showPoScanner = signal<boolean>(false);
   scannerError = signal<string | null>(null);
   @ViewChild('poScannerVideo') poScannerVideo?: ElementRef<HTMLVideoElement>;
-  private poCodeReader?: BrowserMultiFormatReader;
-  private poScannerControls?: IScannerControls;
+  private barcodeScannerService = inject(BarcodeScannerService);
+  private poScannerSession: ScannerSession | null = null;
 
   // Form State
   selectedSupplierId = '';
@@ -547,9 +551,14 @@ export class PurchasesComponent implements OnInit, OnDestroy {
     }
   }
 
-  downloadPoPdf(po: Purchase): void {
-    this.pdfService.generatePurchaseOrderPdf(po);
-    this.toast.info(`Purchase order PDF generated for '${po.purchaseNumber}'`);
+  async downloadPoPdf(po: Purchase): Promise<void> {
+    try {
+      await this.pdfService.generatePurchaseOrderPdf(po);
+      const docType = po.status === 'received' ? 'Goods Receipt Note' : 'Purchase Order';
+      this.toast.success(`${docType} PDF downloaded for '${po.purchaseNumber}'`);
+    } catch (err: any) {
+      this.toast.error('Failed to generate PDF: ' + err.message);
+    }
   }
 
   openPoScanner(): void {
@@ -563,56 +572,21 @@ export class PurchasesComponent implements OnInit, OnDestroy {
   private async startPoCamera(): Promise<void> {
     if (!this.poScannerVideo?.nativeElement) return;
     try {
-      this.poCodeReader = new BrowserMultiFormatReader();
-
-      const constraintProfiles: MediaStreamConstraints[] = [
-        {
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        },
-        {
-          video: { facingMode: 'environment' },
-          audio: false,
-        },
-        {
-          video: true,
-          audio: false,
-        },
-      ];
-
-      let stream: MediaStream | null = null;
-      for (const constraints of constraintProfiles) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break;
-        } catch {
-          // Fall back to next constraint profile
-        }
+      if (this.poScannerSession) {
+        this.poScannerSession.stop();
+        this.poScannerSession = null;
       }
 
-      if (!stream) {
-        throw new Error('Unable to access camera. Please grant camera permission.');
-      }
-
-      const videoEl = this.poScannerVideo.nativeElement;
-      videoEl.srcObject = stream;
-      await videoEl.play();
-
-      this.poScannerControls = await this.poCodeReader.decodeFromVideoElement(
-        videoEl,
-        (result, error) => {
-          if (result) {
-            const code = result.getText().trim();
-            if (code) {
-              this.handleScannedPoBarcode(code);
-            }
-          }
-        }
-      );
+      this.poScannerSession = await this.barcodeScannerService.startSession({
+        videoElement: this.poScannerVideo.nativeElement,
+        preferRear: true,
+        onScan: (result) => {
+          this.handleScannedPoBarcode(result.code);
+        },
+        onError: (err) => {
+          this.scannerError.set(err);
+        },
+      });
     } catch (err: any) {
       this.scannerError.set(err?.message || 'Camera permission denied or camera device unavailable.');
     }
@@ -650,14 +624,9 @@ export class PurchasesComponent implements OnInit, OnDestroy {
   }
 
   closePoScanner(): void {
-    if (this.poScannerControls) {
-      this.poScannerControls.stop();
-      this.poScannerControls = undefined;
-    }
-    if (this.poScannerVideo?.nativeElement?.srcObject) {
-      const stream = this.poScannerVideo.nativeElement.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      this.poScannerVideo.nativeElement.srcObject = null;
+    if (this.poScannerSession) {
+      this.poScannerSession.stop();
+      this.poScannerSession = null;
     }
     this.showPoScanner.set(false);
   }

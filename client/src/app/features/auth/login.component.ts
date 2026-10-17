@@ -13,15 +13,15 @@ import { ToastService } from '../../core/services/toast.service';
     <div class="login-wrapper">
       <div class="login-card">
         <div class="login-brand">
-          <div class="brand-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-              <path d="m3.3 7 8.7 5 8.7-5"/>
-              <path d="M12 22V12"/>
-            </svg>
-          </div>
-          <h1>Inventory ERP</h1>
-          <p>MCA Mini Project &bull; Barcode Integration</p>
+          <img
+            src="assets/store-logo.png"
+            alt="Shree Ganesh Kirana Store"
+            class="brand-logo-img"
+            width="80"
+            height="80"
+          />
+          <h1>Shree Ganesh Kirana Store</h1>
+          <p>Inventory Management System</p>
         </div>
 
         <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="login-form">
@@ -32,7 +32,7 @@ import { ToastService } from '../../core/services/toast.service';
               type="email"
               class="form-control"
               formControlName="email"
-              placeholder="e.g. admin@inventory.local"
+              placeholder="Enter your email address"
               autocomplete="email"
             />
             @if (loginForm.get('email')?.touched && loginForm.get('email')?.invalid) {
@@ -71,19 +71,12 @@ import { ToastService } from '../../core/services/toast.service';
             [disabled]="loginForm.invalid || isLoading()"
           >
             @if (isLoading()) {
-              <span class="spinner"></span> Logging In...
+              <span class="spinner"></span> Signing In...
             } @else {
-              Sign In to System
+              Sign In
             }
           </button>
         </form>
-
-        <div class="demo-credentials">
-          <div class="demo-title">Quick Demo Login:</div>
-          <button type="button" class="btn btn-secondary btn-sm btn-block" (click)="fillAdminCredentials()">
-            Auto-fill Default Admin (admin&#64;inventory.local)
-          </button>
-        </div>
       </div>
     </div>
   `,
@@ -93,7 +86,7 @@ import { ToastService } from '../../core/services/toast.service';
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      background: linear-gradient(135deg, #0d3320 0%, #1a6b34 50%, #2d8a4e 100%);
       padding: 1.5rem;
     }
 
@@ -115,22 +108,18 @@ import { ToastService } from '../../core/services/toast.service';
       text-align: center;
       margin-bottom: 2rem;
 
-      .brand-icon {
-        width: 60px;
-        height: 60px;
+      .brand-logo-img {
         margin: 0 auto 1rem;
-        background: #eff6ff;
-        color: var(--color-primary);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: block;
+        border-radius: 12px;
+        object-fit: contain;
       }
 
       h1 {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 800;
-        color: #0f172a;
+        color: #1a6b34;
+        line-height: 1.3;
       }
 
       p {
@@ -154,7 +143,7 @@ import { ToastService } from '../../core/services/toast.service';
         right: 0.75rem;
         font-size: 0.8rem;
         font-weight: 600;
-        color: var(--color-primary);
+        color: #1a6b34;
         background: none;
       }
     }
@@ -169,20 +158,13 @@ import { ToastService } from '../../core/services/toast.service';
       width: 100%;
     }
 
-    .demo-credentials {
-      margin-top: 2rem;
-      padding-top: 1.5rem;
-      border-top: 1px dashed var(--color-border);
-      text-align: center;
+    .btn-primary {
+      background: linear-gradient(135deg, #1a6b34, #2d8a4e) !important;
+      border: none;
+    }
 
-      .demo-title {
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--color-text-muted);
-        margin-bottom: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #155a2b, #1a6b34) !important;
     }
 
     .spinner {
@@ -210,16 +192,9 @@ export class LoginComponent {
   isLoading = signal<boolean>(false);
 
   loginForm = this.fb.group({
-    email: ['admin@inventory.local', [Validators.required, Validators.email]],
-    password: ['Admin@123456', [Validators.required]],
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', [Validators.required]],
   });
-
-  fillAdminCredentials(): void {
-    this.loginForm.patchValue({
-      email: 'admin@inventory.local',
-      password: 'Admin@123456',
-    });
-  }
 
   onSubmit(): void {
     if (this.loginForm.invalid) return;

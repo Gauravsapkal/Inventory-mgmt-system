@@ -10,11 +10,15 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule, Router } from '@angular/router';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { InventoryApiService, Product } from '../../core/services/inventory-api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
 import { PdfService } from '../../core/services/pdf.service';
+import {
+  BarcodeScannerService,
+  ScannerSession,
+  VideoDeviceOption,
+} from '../../core/services/barcode-scanner.service';
 
 @Component({
   selector: 'app-scanner',
@@ -271,14 +275,15 @@ import { PdfService } from '../../core/services/pdf.service';
     .camera-video {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
+      background: #000;
     }
 
     /* SCANNING RETICLE */
     .scanning-reticle {
       position: absolute;
-      width: 250px;
-      height: 160px;
+      width: min(88%, 360px);
+      height: 170px;
       border: 1px solid rgba(255, 255, 255, 0.2);
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
       border-radius: 8px;
@@ -487,9 +492,9 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
 
   manualBarcodeInput = '';
 
-  private codeReader: BrowserMultiFormatReader | null = null;
-  private scannerControls: IScannerControls | null = null;
-  private videoDevices: MediaDeviceInfo[] = [];
+  private scannerService = inject(BarcodeScannerService);
+  private scannerSession: ScannerSession | null = null;
+  private videoDevices: VideoDeviceOption[] = [];
   private currentDeviceIndex = 0;
   private lastScanTimestamp = 0;
   private readonly scanCooldownMs = 1500;
@@ -504,12 +509,9 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
 
   async initDevices(): Promise<void> {
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        return;
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      this.videoDevices = devices.filter((d) => d.kind === 'videoinput');
-      this.hasMultipleCameras.set(this.videoDevices.length > 1);
+      const devices = await this.scannerService.getAvailableVideoDevices();
+      this.videoDevices = devices;
+      this.hasMultipleCameras.set(devices.length > 1);
     } catch {
       // Permissions not yet granted for enumeration
     }
@@ -518,110 +520,70 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
   async startCamera(): Promise<void> {
     this.permissionError.set(null);
     try {
-      this.codeReader = new BrowserMultiFormatReader();
-
-      const onScanCallback = (result: any) => {
-        if (result) {
-          this.handleDetectedBarcode(result.getText());
-        }
-      };
-
-      // Stage 1: Ideal rear-camera with HD resolution
-      try {
-        this.scannerControls = await this.codeReader.decodeFromConstraints(
-          {
-            video: {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-          },
-          this.videoRef.nativeElement,
-          onScanCallback
-        );
-      } catch (err1) {
-        console.warn('HD Environment constraint failed, trying simple environment mode:', err1);
-        // Stage 2: Simple environment facing mode
-        try {
-          this.scannerControls = await this.codeReader.decodeFromConstraints(
-            { video: { facingMode: 'environment' } },
-            this.videoRef.nativeElement,
-            onScanCallback
-          );
-        } catch (err2) {
-          console.warn('Simple environment mode failed, falling back to any available video stream:', err2);
-          // Stage 3: Universal fallback to any active camera
-          this.scannerControls = await this.codeReader.decodeFromConstraints(
-            { video: true },
-            this.videoRef.nativeElement,
-            onScanCallback
-          );
-        }
+      if (this.scannerSession) {
+        this.scannerSession.stop();
+        this.scannerSession = null;
       }
+
+      const preferredId = this.videoDevices[this.currentDeviceIndex]?.deviceId;
+
+      this.scannerSession = await this.scannerService.startSession({
+        videoElement: this.videoRef.nativeElement,
+        preferredDeviceId: preferredId,
+        preferRear: true,
+        onScan: (result) => {
+          this.handleDetectedBarcode(result.code);
+        },
+        onError: (err) => {
+          this.permissionError.set(err);
+          this.toastService.error('Camera could not be activated: ' + err);
+        },
+      });
 
       this.isScanning.set(true);
+      this.supportsTorch.set(this.scannerSession.isTorchSupported());
+      this.isTorchOn.set(false);
 
-      // Check for torch capability
-      this.checkTorchSupport();
+      // Refresh camera list
+      const devices = await this.scannerService.getAvailableVideoDevices();
+      this.videoDevices = devices;
+      this.hasMultipleCameras.set(devices.length > 1);
     } catch (err: any) {
       this.isScanning.set(false);
-      this.permissionError.set(err.message || 'Camera permission denied or camera not accessible.');
-      this.toastService.error('Camera could not be activated: ' + (err.message || 'Check permissions'));
-    }
-  }
-
-  private checkTorchSupport(): void {
-    try {
-      const stream = this.videoRef.nativeElement.srcObject as MediaStream;
-      if (stream) {
-        const track = stream.getVideoTracks()[0];
-        const capabilities = (track as any).getCapabilities?.();
-        if (capabilities && 'torch' in capabilities) {
-          this.supportsTorch.set(true);
-        }
-      }
-    } catch {
-      this.supportsTorch.set(false);
+      this.permissionError.set(err?.message || 'Camera permission denied or camera not accessible.');
     }
   }
 
   async toggleTorch(): Promise<void> {
-    try {
-      const stream = this.videoRef.nativeElement.srcObject as MediaStream;
-      if (stream) {
-        const track = stream.getVideoTracks()[0];
-        const nextState = !this.isTorchOn();
-        await (track as any).applyConstraints({
-          advanced: [{ torch: nextState }],
-        });
-        this.isTorchOn.set(nextState);
-      }
-    } catch (err: any) {
-      this.toastService.error('Could not toggle device flashlight.');
+    if (!this.scannerSession) return;
+    const nextState = !this.isTorchOn();
+    const success = await this.scannerSession.setTorch(nextState);
+    if (success) {
+      this.isTorchOn.set(nextState);
+    } else {
+      this.toastService.info('Torch not supported on this device.');
     }
   }
 
   async switchCamera(): Promise<void> {
-    if (this.videoDevices.length <= 1) return;
-    this.stopCamera();
+    if (this.videoDevices.length <= 1 || !this.scannerSession) return;
     this.currentDeviceIndex = (this.currentDeviceIndex + 1) % this.videoDevices.length;
-    setTimeout(() => {
-      this.startCamera();
-    }, 200);
+    const nextDevice = this.videoDevices[this.currentDeviceIndex];
+    try {
+      await this.scannerSession.switchDevice(nextDevice.deviceId);
+      this.supportsTorch.set(this.scannerSession.isTorchSupported());
+      this.isTorchOn.set(false);
+      this.toastService.info(`Switched to: ${nextDevice.label}`);
+    } catch (err: any) {
+      this.toastService.error('Failed to switch camera: ' + err.message);
+    }
   }
 
   stopCamera(): void {
-    if (this.scannerControls) {
-      this.scannerControls.stop();
-      this.scannerControls = null;
+    if (this.scannerSession) {
+      this.scannerSession.stop();
+      this.scannerSession = null;
     }
-
-    if (this.videoRef && this.videoRef.nativeElement && this.videoRef.nativeElement.srcObject) {
-      const stream = this.videoRef.nativeElement.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      this.videoRef.nativeElement.srcObject = null;
-    }
-
     this.isScanning.set(false);
     this.isTorchOn.set(false);
   }
@@ -711,8 +673,12 @@ export class BarcodeScannerComponent implements OnInit, OnDestroy {
     this.router.navigate(['/products'], { queryParams: { newBarcode: this.unknownCode() } });
   }
 
-  downloadBarcodeSticker(product: Product): void {
-    this.pdfService.generateBarcodeStickerPdf(product);
-    this.toastService.info(`Barcode sticker generated for '${product.sku}'`);
+  async downloadBarcodeSticker(product: Product): Promise<void> {
+    try {
+      await this.pdfService.generateBarcodeStickerPdf(product);
+      this.toastService.success(`Barcode sticker generated for '${product.sku}'`);
+    } catch (err: any) {
+      this.toastService.error('Failed to generate sticker: ' + err.message);
+    }
   }
 }

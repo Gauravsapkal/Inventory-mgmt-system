@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="cartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d8a4e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a6b34;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="leafGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#34a853;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#66bb6a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Shopping Cart Body -->
+  <path d="M60 85 L55 75 Q53 70 58 70 L150 70 Q155 70 154 75 L143 115 Q142 120 137 120 L75 120 Q70 120 69 115 Z" fill="url(#cartGrad)" />
+  <!-- Cart Grid Lines (horizontal) -->
+  <line x1="62" y1="85" x2="148" y2="85" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="67" y1="97" x2="144" y2="97" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="72" y1="109" x2="140" y2="109" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <!-- Cart Grid Lines (vertical) -->
+  <line x1="85" y1="72" x2="80" y2="118" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="107" y1="72" x2="104" y2="118" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="129" y1="72" x2="125" y2="118" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <!-- Cart Handle -->
+  <path d="M50 75 L38 55 Q35 50 40 50 L52 50" stroke="url(#cartGrad)" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Cart Wheels -->
+  <circle cx="82" cy="132" r="7" fill="url(#cartGrad)" />
+  <circle cx="82" cy="132" r="3" fill="#ffffff" />
+  <circle cx="130" cy="132" r="7" fill="url(#cartGrad)" />
+  <circle cx="130" cy="132" r="3" fill="#ffffff" />
+  <!-- Cart Axle -->
+  <path d="M75 120 L78 132" stroke="url(#cartGrad)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M135 120 L133 132" stroke="url(#cartGrad)" stroke-width="4" stroke-linecap="round"/>
+  <!-- Leaves coming out of cart -->
+  <path d="M100 68 Q100 42 85 30 Q105 38 105 60 Z" fill="url(#leafGrad)" />
+  <path d="M108 65 Q115 38 135 28 Q120 42 115 62 Z" fill="#34a853" />
+  <path d="M93 62 Q82 40 65 35 Q80 42 88 58 Z" fill="#66bb6a" opacity="0.85"/>
+  <!-- Leaf center vein -->
+  <path d="M97 65 Q95 50 88 38" stroke="#1a6b34" stroke-width="1" fill="none" opacity="0.5"/>
+  <path d="M110 62 Q118 45 130 35" stroke="#1a6b34" stroke-width="1" fill="none" opacity="0.5"/>
+  <!-- Store Name Text -->
+  <text x="100" y="162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="14" fill="#1a6b34">SHREE GANESH</text>
+  <text x="100" y="178" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="14" fill="#1a6b34">KIRANA STORE</text>
+  <text x="100" y="192" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="normal" font-size="8" fill="#64748b">Inventory Management System</text>
+</svg>

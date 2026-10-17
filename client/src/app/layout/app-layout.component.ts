@@ -25,16 +25,12 @@ import { ToastService } from '../core/services/toast.service';
       <aside class="app-sidebar no-print" [class.collapsed]="layout.isSidebarCollapsed()">
         <div class="sidebar-brand">
           <div class="brand-logo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-              <path d="m3.3 7 8.7 5 8.7-5"/>
-              <path d="M12 22V12"/>
-            </svg>
+            <img src="assets/store-logo.png" alt="Shree Ganesh Kirana Store" width="32" height="32" style="border-radius: 4px;" />
           </div>
           @if (!layout.isSidebarCollapsed()) {
             <div class="brand-text">
-              <span class="brand-title">Inventory ERP</span>
-              <span class="brand-subtitle">MCA Mini Project</span>
+              <span class="brand-title">Shree Ganesh Kirana</span>
+              <span class="brand-subtitle">Inventory Management</span>
             </div>
           }
         </div>
@@ -144,7 +140,7 @@ import { ToastService } from '../core/services/toast.service';
               </button>
             }
             <div class="page-title">
-              <h2>Inventory Management System</h2>
+              <h2>Shree Ganesh Kirana Store</h2>
             </div>
           </div>
 
@@ -226,7 +222,7 @@ import { ToastService } from '../core/services/toast.service';
           <div class="mobile-drawer">
             <div class="drawer-header">
               <div class="brand-text">
-                <span class="brand-title">ERP Navigation</span>
+                <span class="brand-title">Shree Ganesh Kirana</span>
                 <span class="brand-subtitle">{{ authService.currentUser()?.email }}</span>
               </div>
               <button class="icon-btn" (click)="layout.closeMobileDrawer()">&times;</button>

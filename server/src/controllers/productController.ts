@@ -6,6 +6,7 @@ import { Purchase } from '../models/Purchase';
 import { StockMovement } from '../models/StockMovement';
 import { sendSuccess, sendError } from '../utils/response';
 import { AuthenticatedRequest } from '../middlewares/auth';
+import { realtimeService } from '../services/realtimeService';
 
 export const productSchema = z.object({
   body: z.object({
@@ -140,6 +141,8 @@ export async function createProduct(req: AuthenticatedRequest, res: Response, ne
       });
     }
 
+    realtimeService.broadcast('product_created', product);
+
     sendSuccess(res, product, 'Product created successfully', 201);
   } catch (error) {
     next(error);
@@ -202,6 +205,8 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response, ne
       { new: true, runValidators: true }
     ).populate('category', 'name');
 
+    realtimeService.broadcast('product_updated', updated);
+
     sendSuccess(res, updated, 'Product updated successfully');
   } catch (error) {
     next(error);
@@ -219,11 +224,13 @@ export async function deleteProduct(req: Request, res: Response, next: NextFunct
     if (inSale || inPurchase) {
       // Archive instead of hard delete to preserve financial and audit integrity
       const archived = await Product.findByIdAndUpdate(id, { status: 'archived' }, { new: true });
+      realtimeService.broadcast('product_updated', archived);
       sendSuccess(res, archived, 'Product has historical transactions and was safely archived instead of deleted.');
       return;
     }
 
     await Product.findByIdAndDelete(id);
+    realtimeService.broadcast('product_deleted', { id });
     sendSuccess(res, null, 'Product deleted successfully');
   } catch (error) {
     next(error);

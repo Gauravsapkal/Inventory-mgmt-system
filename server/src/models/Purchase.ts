@@ -1,14 +1,34 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
 
-export type PurchaseStatus = 'draft' | 'received' | 'cancelled';
+export type PurchaseStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
 
 export interface IPurchaseItem {
   product: mongoose.Types.ObjectId;
   productName: string;
   sku: string;
-  quantity: number;
+  barcode?: string;
+  quantity: number; // Ordered quantity
+  receivedQuantity: number; // Total quantity received so far
   unitCost: number;
   totalCost: number;
+}
+
+export interface IPurchaseReceiptItem {
+  product: mongoose.Types.ObjectId;
+  productName: string;
+  sku: string;
+  quantityReceived: number;
+  notes?: string;
+}
+
+export interface IPurchaseReceipt {
+  receiptNumber: string;
+  receivedDate: Date;
+  receivedBy?: mongoose.Types.ObjectId;
+  receivedByName?: string;
+  items: IPurchaseReceiptItem[];
+  notes?: string;
+  createdAt: Date;
 }
 
 export interface IPurchase extends Document {
@@ -23,6 +43,7 @@ export interface IPurchase extends Document {
   status: PurchaseStatus;
   notes?: string;
   receivedBy?: mongoose.Types.ObjectId;
+  receipts: IPurchaseReceipt[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,10 +63,19 @@ const purchaseItemSchema = new Schema<IPurchaseItem>(
       type: String,
       required: true,
     },
+    barcode: {
+      type: String,
+      trim: true,
+    },
     quantity: {
       type: Number,
       required: true,
       min: [1, 'Quantity must be at least 1'],
+    },
+    receivedQuantity: {
+      type: Number,
+      default: 0,
+      min: [0, 'Received quantity cannot be negative'],
     },
     unitCost: {
       type: Number,
@@ -56,6 +86,69 @@ const purchaseItemSchema = new Schema<IPurchaseItem>(
       type: Number,
       required: true,
       min: [0, 'Total cost cannot be negative'],
+    },
+  },
+  { _id: false }
+);
+
+const purchaseReceiptItemSchema = new Schema<IPurchaseReceiptItem>(
+  {
+    product: {
+      type: Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+    },
+    productName: {
+      type: String,
+      required: true,
+    },
+    sku: {
+      type: String,
+      required: true,
+    },
+    quantityReceived: {
+      type: Number,
+      required: true,
+      min: [0, 'Received quantity cannot be negative'],
+    },
+    notes: {
+      type: String,
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
+const purchaseReceiptSchema = new Schema<IPurchaseReceipt>(
+  {
+    receiptNumber: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    receivedDate: {
+      type: Date,
+      default: Date.now,
+    },
+    receivedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    receivedByName: {
+      type: String,
+      trim: true,
+    },
+    items: {
+      type: [purchaseReceiptItemSchema],
+      default: [],
+    },
+    notes: {
+      type: String,
+      trim: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   { _id: false }
@@ -105,8 +198,8 @@ const purchaseSchema = new Schema<IPurchase>(
     },
     status: {
       type: String,
-      enum: ['draft', 'received', 'cancelled'],
-      default: 'draft',
+      enum: ['draft', 'ordered', 'partially_received', 'received', 'cancelled'],
+      default: 'ordered',
       index: true,
     },
     notes: {
@@ -116,6 +209,10 @@ const purchaseSchema = new Schema<IPurchase>(
     receivedBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
+    },
+    receipts: {
+      type: [purchaseReceiptSchema],
+      default: [],
     },
   },
   {

@@ -32,7 +32,7 @@ interface CartItem {
           <p class="page-subtitle">Fast checkout, phone-camera scanning, real-time stock verification, and invoice printing</p>
         </div>
         <div class="header-actions">
-          <button class="btn btn-secondary" (click)="showSalesHistory.set(!showSalesHistory())">
+          <button class="btn btn-secondary" (click)="toggleSalesHistory()">
             {{ showSalesHistory() ? '← Return to Terminal' : 'Past Invoices History' }}
           </button>
         </div>
@@ -254,53 +254,123 @@ interface CartItem {
           </div>
         }
       } @else {
-        <!-- HISTORICAL INVOICES TABLE -->
+        <!-- HISTORICAL INVOICES TABLE (Database Connected) -->
         <div class="card no-print">
           <div class="history-header">
-            <h3>Completed Sales Invoices</h3>
-            <input
-              type="text"
-              class="form-control"
-              style="max-width: 300px;"
-              placeholder="Search by invoice number or customer..."
-              [(ngModel)]="historySearch"
-              (ngModelChange)="loadSalesHistory()"
-            />
+            <div>
+              <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700;">Completed Sales Invoices</h3>
+              <span style="font-size: 0.8rem; color: var(--color-text-muted);">
+                Retrieved directly from database • Total: {{ historyTotal() }} recorded invoices
+              </span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <input
+                type="text"
+                class="form-control"
+                style="min-width: 250px; max-width: 360px;"
+                placeholder="Search invoice #, customer name, phone..."
+                [(ngModel)]="historySearch"
+                (ngModelChange)="onHistorySearchChange()"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                (click)="loadSalesHistory(historyPage())"
+                [disabled]="isLoadingHistory()"
+                title="Refresh from database"
+              >
+                🔄 Refresh
+              </button>
+            </div>
           </div>
 
-          <div class="table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Invoice No</th>
-                  <th>Date &amp; Time</th>
-                  <th>Customer</th>
-                  <th>Items</th>
-                  <th>Grand Total</th>
-                  <th>Payment</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (sale of salesHistory(); track sale._id) {
+          @if (historyError()) {
+            <div class="alert alert-danger" style="margin: 1rem 0; padding: 0.75rem 1rem; border-radius: var(--radius-md); background: #fee2e2; color: #b91c1c; font-size: 0.85rem;">
+              {{ historyError() }}
+            </div>
+          }
+
+          @if (isLoadingHistory()) {
+            <div style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted);">
+              <div style="font-size: 2rem; margin-bottom: 0.5rem;">⏳</div>
+              <p style="margin: 0; font-weight: 600;">Loading sales invoices from database...</p>
+            </div>
+          } @else if (salesHistory().length === 0) {
+            <div style="text-align: center; padding: 3.5rem 1rem; color: var(--color-text-muted);">
+              <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🧾</div>
+              <h4 style="margin: 0 0 0.35rem 0; font-weight: 700; color: var(--color-text-main);">No Sales Invoices Found</h4>
+              <p style="margin: 0; font-size: 0.85rem; max-width: 480px; margin-inline: auto;">
+                {{ historySearch ? 'No completed invoices match "' + historySearch + '". Try searching with a different invoice number or customer name.' : 'No completed sales invoices recorded in database yet. Invoices completed through POS checkout will be preserved here.' }}
+              </p>
+            </div>
+          } @else {
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
                   <tr>
-                    <td class="font-mono font-bold">{{ sale.invoiceNumber }}</td>
-                    <td>{{ sale.saleDate | date:'medium' }}</td>
-                    <td>{{ sale.customerName }}</td>
-                    <td>{{ sale.items.length }} items</td>
-                    <td class="font-mono font-bold text-success">₹{{ sale.grandTotal.toFixed(2) }}</td>
-                    <td><span class="badge badge-info">{{ sale.paymentMethod | uppercase }}</span></td>
-                    <td>
-                      <div style="display: flex; gap: 0.35rem;">
-                        <button class="btn btn-secondary btn-sm" (click)="viewInvoice(sale)">View</button>
-                        <button class="btn btn-primary btn-sm" (click)="downloadPdf(sale)" title="Download PDF">PDF</button>
-                      </div>
-                    </td>
+                    <th>Invoice No</th>
+                    <th>Date &amp; Time</th>
+                    <th>Customer</th>
+                    <th>Items</th>
+                    <th>Grand Total</th>
+                    <th>Payment</th>
+                    <th style="text-align: right;">Action</th>
                   </tr>
-                }
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  @for (sale of salesHistory(); track sale._id) {
+                    <tr>
+                      <td class="font-mono font-bold">{{ sale.invoiceNumber }}</td>
+                      <td>{{ sale.saleDate | date:'medium' }}</td>
+                      <td>
+                        <div style="font-weight: 600;">{{ sale.customerName || 'Walk-in Customer' }}</div>
+                        @if (sale.customerPhone) {
+                          <span style="font-size: 0.75rem; color: var(--color-text-muted);" class="font-mono">{{ sale.customerPhone }}</span>
+                        }
+                      </td>
+                      <td>{{ sale.items.length }} items</td>
+                      <td class="font-mono font-bold text-success">₹{{ sale.grandTotal.toFixed(2) }}</td>
+                      <td><span class="badge badge-info">{{ sale.paymentMethod | uppercase }}</span></td>
+                      <td style="text-align: right;">
+                        <div style="display: inline-flex; gap: 0.35rem; justify-content: flex-end;">
+                          <button class="btn btn-secondary btn-sm" (click)="viewInvoice(sale)" title="View Invoice Details">View</button>
+                          <button class="btn btn-primary btn-sm" (click)="downloadPdf(sale)" title="Download PDF Invoice">PDF</button>
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- PAGINATION CONTROLS -->
+            <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 0 0.5rem 0; border-top: 1px solid var(--color-border); margin-top: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+              <span style="font-size: 0.85rem; color: var(--color-text-muted);">
+                Showing page {{ historyPage() }} of {{ historyTotalPages() }} ({{ historyTotal() }} total invoices)
+              </span>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="historyPage() <= 1 || isLoadingHistory()"
+                  (click)="loadSalesHistory(historyPage() - 1)"
+                >
+                  &larr; Previous
+                </button>
+                <span class="font-mono" style="font-size: 0.85rem; padding: 0 0.5rem;">
+                  {{ historyPage() }} / {{ historyTotalPages() }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="historyPage() >= historyTotalPages() || isLoadingHistory()"
+                  (click)="loadSalesHistory(historyPage() + 1)"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            </div>
+          }
         </div>
       }
 
@@ -1073,7 +1143,14 @@ export class SalesComponent implements OnInit, OnDestroy {
   showSalesHistory = signal<boolean>(false);
   salesHistory = signal<Sale[]>([]);
   historySearch = '';
+  historyPage = signal<number>(1);
+  historyLimit = 15;
+  historyTotalPages = signal<number>(1);
+  historyTotal = signal<number>(0);
+  isLoadingHistory = signal<boolean>(false);
+  historyError = signal<string | null>(null);
   activeInvoice = signal<Sale | null>(null);
+  private searchDebounceTimer: any = null;
 
   // INLINE MOBILE CAMERA SCANNER IN POS
   showCameraScanner = signal<boolean>(false);
@@ -1091,6 +1168,7 @@ export class SalesComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.loadCatalog();
+    this.loadSalesHistory(1);
 
     this.route.queryParams.subscribe((params) => {
       if (params['addProductId']) {
@@ -1377,10 +1455,42 @@ export class SalesComponent implements OnInit, OnDestroy {
     });
   }
 
-  loadSalesHistory(): void {
-    this.api.getSales(1, 20, this.historySearch).subscribe({
+  toggleSalesHistory(): void {
+    const nextVal = !this.showSalesHistory();
+    this.showSalesHistory.set(nextVal);
+    if (nextVal) {
+      this.loadSalesHistory(1);
+    }
+  }
+
+  onHistorySearchChange(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.loadSalesHistory(1);
+    }, 300);
+  }
+
+  loadSalesHistory(page: number = this.historyPage()): void {
+    this.historyPage.set(page);
+    this.isLoadingHistory.set(true);
+    this.historyError.set(null);
+
+    this.api.getSales(page, this.historyLimit, this.historySearch.trim()).subscribe({
       next: (res) => {
-        if (res.success) this.salesHistory.set(res.data);
+        this.isLoadingHistory.set(false);
+        if (res.success) {
+          this.salesHistory.set(res.data);
+          if (res.meta) {
+            this.historyTotalPages.set(res.meta.totalPages || 1);
+            this.historyTotal.set(res.meta.total || 0);
+          }
+        }
+      },
+      error: (err) => {
+        this.isLoadingHistory.set(false);
+        this.historyError.set(err?.error?.message || 'Failed to retrieve sales invoices from database.');
       },
     });
   }

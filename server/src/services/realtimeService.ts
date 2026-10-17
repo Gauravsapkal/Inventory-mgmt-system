@@ -7,6 +7,7 @@ export type RealtimeEventType =
   | 'product_updated' 
   | 'product_deleted' 
   | 'purchase_created'
+  | 'purchase_updated'
   | 'heartbeat';
 
 interface SSEClient {

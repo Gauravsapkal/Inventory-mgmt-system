@@ -115,11 +115,11 @@ async function setupPdfFonts(doc: jsPDF): Promise<{ fontName: string; currencySy
       }
       return { fontName: 'StoreFont', currencySymbol: '₹' };
     } catch {
-      return { fontName: 'helvetica', currencySymbol: 'Rs. ' };
+      return { fontName: 'helvetica', currencySymbol: '₹' };
     }
   }
 
-  return { fontName: 'helvetica', currencySymbol: 'Rs. ' };
+  return { fontName: 'helvetica', currencySymbol: '₹' };
 }
 
 /** Common PDF header with logo, store name, and document title */
@@ -415,6 +415,16 @@ export class PdfService {
    * - Summary: Subtotal, Taxes/freight, Grand Total
    * - Footer: Authorized / received by, Supplier acknowledgment, page numbering
    */
+  /**
+   * Generates and downloads a formal Goods Receipt Note (GRN) or Purchase Order (PO) PDF
+   * strictly adhering to the requested structure:
+   * - Header: Store logo on left, SHREE GANESH KIRANA STORE, Subtitle: Inventory Management System
+   * - Document details: PO / GRN number, Purchase order number, Order date, Receipt date, Status badge
+   * - Supplier details: Supplier name, contact info, address
+   * - Items table: Sr. No., Item Description, SKU / Barcode, Unit Cost, Ordered Qty, Received Qty, Pending Qty, Total Cost
+   * - Summary: Subtotal, Taxes/freight, Grand Total
+   * - Footer: Authorized / received by, Supplier acknowledgment, page numbering
+   */
   async generatePurchaseOrderPdf(purchase: Purchase): Promise<void> {
     const [logoBase64] = await Promise.all([getLogoBase64()]);
 
@@ -430,9 +440,13 @@ export class PdfService {
     const darkColor = [15, 23, 42] as [number, number, number];
     const grayColor = [100, 116, 139] as [number, number, number];
 
-    const isGRN = purchase.status === 'received';
-    const docTitle = isGRN ? 'GOODS RECEIPT NOTE' : 'PURCHASE ORDER';
-    const grnNumber = isGRN ? `GRN-${purchase.purchaseNumber.replace(/^PO-?/, '')}` : purchase.purchaseNumber;
+    const isFullyReceived = purchase.status === 'received';
+    const isPartiallyReceived = purchase.status === 'partially_received';
+    const docTitle = isFullyReceived
+      ? 'GOODS RECEIPT NOTE (GRN)'
+      : isPartiallyReceived
+      ? 'PURCHASE ORDER & RECEIPT'
+      : 'PURCHASE ORDER';
 
     // 1. Header with logo, store name, subtitle, and title
     drawPdfHeader(doc, logoBase64, docTitle, fontName, primaryColor, darkColor, grayColor);
@@ -441,29 +455,39 @@ export class PdfService {
     doc.setFont(fontName, 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(...darkColor);
-    doc.text(`${isGRN ? 'GRN Number' : 'PO Number'}: ${grnNumber}`, 196, 37, { align: 'right' });
+    doc.text(`PO Number: ${purchase.purchaseNumber}`, 196, 37, { align: 'right' });
 
     doc.setFont(fontName, 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(...grayColor);
-    if (isGRN) {
-      doc.text(`PO Reference: ${purchase.purchaseNumber}`, 196, 42, { align: 'right' });
+    const orderDate = new Date(purchase.purchaseDate).toLocaleDateString('en-IN');
+    doc.text(`Order Date: ${orderDate}`, 196, 42.5, { align: 'right' });
+
+    if (purchase.receivedDate) {
+      const recDate = new Date(purchase.receivedDate).toLocaleDateString('en-IN');
+      doc.text(`Latest Receipt: ${recDate}`, 196, 47.5, { align: 'right' });
     }
-    const receiptDate = new Date(purchase.receivedDate || purchase.purchaseDate).toLocaleDateString('en-IN');
-    doc.text(`Receipt Date: ${receiptDate}`, 196, isGRN ? 47 : 42, { align: 'right' });
 
     // Status badge
-    const statusY = isGRN ? 52 : 47;
+    const statusY = purchase.receivedDate ? 52.5 : 47.5;
     doc.setFont(fontName, 'bold');
     doc.setFontSize(8.5);
     if (purchase.status === 'received') {
       doc.setTextColor(16, 185, 129); // green
+      doc.text('Status: RECEIVED (COMPLETED)', 196, statusY, { align: 'right' });
+    } else if (purchase.status === 'partially_received') {
+      doc.setTextColor(217, 119, 6); // amber
+      doc.text('Status: PARTIALLY RECEIVED', 196, statusY, { align: 'right' });
     } else if (purchase.status === 'cancelled') {
-      doc.setTextColor(239, 68, 68); // red
+      doc.setTextColor(220, 38, 38); // red
+      doc.text('Status: CANCELLED', 196, statusY, { align: 'right' });
+    } else if (purchase.status === 'draft') {
+      doc.setTextColor(100, 116, 139); // slate
+      doc.text('Status: DRAFT', 196, statusY, { align: 'right' });
     } else {
-      doc.setTextColor(245, 158, 11); // amber
+      doc.setTextColor(37, 99, 235); // blue
+      doc.text('Status: ORDERED', 196, statusY, { align: 'right' });
     }
-    doc.text(`Status: ${purchase.status.toUpperCase()}`, 196, statusY, { align: 'right' });
 
     // 3. Supplier Details
     const supplierName = purchase.supplier?.name || 'Authorized Supplier';
@@ -500,44 +524,55 @@ export class PdfService {
     }
 
     // 4. Items Table
-    const tableBody = purchase.items.map((item, idx) => [
-      (idx + 1).toString(),
-      item.productName || 'Grocery Item',
-      item.sku || '-',
-      formatCurrency(item.unitCost, currencySymbol),
-      item.quantity.toString(),
-      isGRN ? item.quantity.toString() : 'Pending',
-      formatCurrency(item.totalCost, currencySymbol),
-    ]);
+    const tableBody = purchase.items.map((item, idx) => {
+      const ordered = item.quantity || 0;
+      const received = item.receivedQuantity !== undefined && item.receivedQuantity !== null
+        ? item.receivedQuantity
+        : (purchase.status === 'received' ? ordered : 0);
+      const pending = Math.max(0, ordered - received);
+      const codeStr = [item.sku, item.barcode].filter(Boolean).join(' / ') || '-';
+
+      return [
+        (idx + 1).toString(),
+        item.productName || 'Grocery Item',
+        codeStr,
+        formatCurrency(item.unitCost, currencySymbol),
+        ordered.toString(),
+        received.toString(),
+        pending.toString(),
+        formatCurrency(item.totalCost, currencySymbol),
+      ];
+    });
 
     const tableStartY = Math.max(supplierY + 8, 62);
 
     autoTable(doc, {
       startY: tableStartY,
-      head: [['Sr.', 'Item Description', 'SKU / Barcode', 'Unit Cost', 'Ordered Qty', 'Received Qty', 'Total Cost']],
+      head: [['Sr.', 'Item Description', 'SKU / Barcode', 'Unit Cost', 'Ordered', 'Received', 'Pending', 'Line Total']],
       body: tableBody,
       theme: 'grid',
       styles: {
         font: fontName,
-        fontSize: 8.5,
+        fontSize: 8,
         textColor: darkColor,
-        cellPadding: 2.5,
+        cellPadding: 2,
       },
       headStyles: {
         font: fontName,
         fontStyle: 'bold',
         fillColor: primaryColor,
         textColor: [255, 255, 255],
-        fontSize: 8.5,
+        fontSize: 8,
       },
       columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 58 },
-        2: { cellWidth: 28 },
-        3: { cellWidth: 24, halign: 'right' },
-        4: { cellWidth: 18, halign: 'center' },
-        5: { cellWidth: 18, halign: 'center' },
-        6: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 9, halign: 'center' },
+        1: { cellWidth: 52 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 16, halign: 'center' },
+        5: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+        6: { cellWidth: 16, halign: 'center' },
+        7: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
       },
       margin: { left: 14, right: 14 },
     });
@@ -592,8 +627,156 @@ export class PdfService {
     drawPdfFooter(doc, fontName, grayColor);
 
     // Save PDF
-    const filenamePrefix = isGRN ? 'GRN' : 'PO';
-    doc.save(`${filenamePrefix}_${purchase.purchaseNumber}.pdf`);
+    const prefix = isFullyReceived ? 'GRN' : 'PO';
+    doc.save(`${prefix}_${purchase.purchaseNumber}.pdf`);
+  }
+
+  /**
+   * Generates and downloads a dedicated Goods Receipt Note (GRN) PDF for a specific shipment/receipt
+   */
+  async generateGrnPdf(purchase: Purchase, receiptIndex?: number): Promise<void> {
+    const [logoBase64] = await Promise.all([getLogoBase64()]);
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const { fontName, currencySymbol } = await setupPdfFonts(doc);
+
+    const primaryColor = [26, 107, 52] as [number, number, number];
+    const darkColor = [15, 23, 42] as [number, number, number];
+    const grayColor = [100, 116, 139] as [number, number, number];
+
+    const receipts = purchase.receipts || [];
+    const targetReceipt = receiptIndex !== undefined && receipts[receiptIndex]
+      ? receipts[receiptIndex]
+      : receipts[receipts.length - 1];
+
+    const grnNumber = targetReceipt?.receiptNumber || `GRN-${purchase.purchaseNumber.replace(/^PO-?/, '')}`;
+    const receiptDate = targetReceipt?.receivedDate
+      ? new Date(targetReceipt.receivedDate).toLocaleDateString('en-IN')
+      : new Date().toLocaleDateString('en-IN');
+
+    // Header
+    drawPdfHeader(doc, logoBase64, 'GOODS RECEIPT NOTE', fontName, primaryColor, darkColor, grayColor);
+
+    // Details on Right
+    doc.setFont(fontName, 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...darkColor);
+    doc.text(`GRN Number: ${grnNumber}`, 196, 37, { align: 'right' });
+
+    doc.setFont(fontName, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...grayColor);
+    doc.text(`PO Reference: ${purchase.purchaseNumber}`, 196, 42.5, { align: 'right' });
+    doc.text(`Receipt Date: ${receiptDate}`, 196, 47.5, { align: 'right' });
+
+    const receiverName = targetReceipt?.receivedByName || targetReceipt?.receivedBy?.name || 'Storekeeper';
+    doc.text(`Received By: ${receiverName}`, 196, 52.5, { align: 'right' });
+
+    // Supplier Details
+    const supplierName = purchase.supplier?.name || 'Authorized Supplier';
+    const supplierContact = purchase.supplier?.contactPerson || '';
+    const supplierPhone = purchase.supplier?.phone || '';
+
+    doc.setFont(fontName, 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...darkColor);
+    doc.text('Delivered By (Supplier):', 14, 38);
+
+    doc.setFont(fontName, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...grayColor);
+    doc.text(`Supplier: ${supplierName}`, 14, 43.5);
+    let supY = 43.5;
+    if (supplierContact) {
+      supY += 4.5;
+      doc.text(`Contact: ${supplierContact}`, 14, supY);
+    }
+    if (supplierPhone) {
+      supY += 4.5;
+      doc.text(`Phone: ${supplierPhone}`, 14, supY);
+    }
+
+    // Receipt items table
+    let tableBody: any[] = [];
+    if (targetReceipt && targetReceipt.items && targetReceipt.items.length > 0) {
+      tableBody = targetReceipt.items.map((it, idx) => [
+        (idx + 1).toString(),
+        it.productName,
+        it.sku || '-',
+        it.quantityReceived.toString(),
+        it.notes || 'Accepted in good condition',
+      ]);
+    } else {
+      tableBody = purchase.items.map((it, idx) => [
+        (idx + 1).toString(),
+        it.productName,
+        it.sku || '-',
+        (it.receivedQuantity || it.quantity).toString(),
+        'Received into inventory',
+      ]);
+    }
+
+    const startY = Math.max(supY + 10, 60);
+
+    autoTable(doc, {
+      startY,
+      head: [['Sr.', 'Item Description', 'SKU', 'Quantity Received', 'Condition / Remarks']],
+      body: tableBody,
+      theme: 'grid',
+      styles: {
+        font: fontName,
+        fontSize: 8.5,
+        textColor: darkColor,
+        cellPadding: 2.5,
+      },
+      headStyles: {
+        font: fontName,
+        fontStyle: 'bold',
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 8.5,
+      },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 70 },
+        2: { cellWidth: 32 },
+        3: { cellWidth: 28, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 40 },
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    const finalY = (doc as any).lastAutoTable?.finalY || 130;
+
+    if (targetReceipt?.notes) {
+      doc.setFont(fontName, 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...darkColor);
+      doc.text(`Delivery / Shipment Notes: ${targetReceipt.notes}`, 14, finalY + 8);
+    }
+
+    // Signatures
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const sigY = Math.min(finalY + 25, pageHeight - 32);
+
+    doc.setFont(fontName, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...grayColor);
+
+    doc.text('_________________________________', 20, sigY);
+    doc.text(`Received & Verified By (${receiverName})`, 20, sigY + 5.5);
+
+    doc.text('_________________________________', 130, sigY);
+    doc.text('Delivery Person / Driver Signature', 130, sigY + 5.5);
+
+    drawPdfFooter(doc, fontName, grayColor);
+
+    doc.save(`${grnNumber}.pdf`);
   }
 
   /**

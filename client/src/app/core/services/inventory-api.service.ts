@@ -50,12 +50,32 @@ export interface Supplier {
 }
 
 export interface PurchaseItem {
+  product: string | Product;
+  productName: string;
+  sku: string;
+  barcode?: string;
+  quantity: number;
+  receivedQuantity?: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface PurchaseReceiptItem {
   product: string;
   productName: string;
   sku: string;
-  quantity: number;
-  unitCost: number;
-  totalCost: number;
+  quantityReceived: number;
+  notes?: string;
+}
+
+export interface PurchaseReceipt {
+  receiptNumber: string;
+  receivedDate: string;
+  receivedBy?: any;
+  receivedByName?: string;
+  items: PurchaseReceiptItem[];
+  notes?: string;
+  createdAt?: string;
 }
 
 export interface Purchase {
@@ -68,9 +88,10 @@ export interface Purchase {
   subtotal: number;
   tax: number;
   total: number;
-  status: 'draft' | 'received' | 'cancelled';
+  status: 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
   notes?: string;
   receivedBy?: any;
+  receipts?: PurchaseReceipt[];
 }
 
 export interface SaleItem {
@@ -225,9 +246,10 @@ export class InventoryApiService {
   }
 
   // --- Purchases ---
-  getPurchases(page = 1, limit = 20, status?: string): Observable<ApiResponse<Purchase[]>> {
+  getPurchases(page = 1, limit = 20, status?: string, search?: string): Observable<ApiResponse<Purchase[]>> {
     let params = new HttpParams().set('page', page.toString()).set('limit', limit.toString());
-    if (status) params = params.set('status', status);
+    if (status && status !== 'all') params = params.set('status', status);
+    if (search) params = params.set('search', search);
     return this.http.get<ApiResponse<Purchase[]>>(`${this.baseUrl}/purchases`, { params });
   }
 
@@ -239,8 +261,14 @@ export class InventoryApiService {
     return this.http.post<ApiResponse<Purchase>>(`${this.baseUrl}/purchases`, payload);
   }
 
-  receivePurchase(id: string): Observable<ApiResponse<Purchase>> {
-    return this.http.post<ApiResponse<Purchase>>(`${this.baseUrl}/purchases/${id}/receive`, {});
+  receivePurchase(
+    id: string,
+    payload?: {
+      items?: { product: string; quantityReceived: number; notes?: string }[];
+      notes?: string;
+    }
+  ): Observable<ApiResponse<Purchase>> {
+    return this.http.post<ApiResponse<Purchase>>(`${this.baseUrl}/purchases/${id}/receive`, payload || {});
   }
 
   cancelPurchase(id: string): Observable<ApiResponse<Purchase>> {

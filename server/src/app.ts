@@ -38,11 +38,17 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, or Postman)
       if (!origin) return callback(null, true);
-      // In development, allow localhost and LAN IP addresses for mobile browser testing
+      // In development, allow all origins
       if (ENV.NODE_ENV !== 'production') {
         return callback(null, true);
       }
-      if (origin === ENV.CORS_ORIGIN) {
+      // In production, allow configured origin, wildcard, or any Vercel preview/production deployment
+      if (
+        ENV.CORS_ORIGIN === '*' ||
+        origin === ENV.CORS_ORIGIN ||
+        origin.endsWith('.vercel.app') ||
+        origin.includes('localhost')
+      ) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));

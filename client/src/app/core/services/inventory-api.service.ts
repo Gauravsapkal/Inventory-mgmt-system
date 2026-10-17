@@ -148,9 +148,9 @@ export class InventoryApiService {
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://localhost:5000/api';
       }
-      return '/api';
+      return 'https://shree-ganesh-kirana-api.onrender.com/api';
     }
-    return '/api';
+    return 'https://shree-ganesh-kirana-api.onrender.com/api';
   }
 
   // --- Categories ---

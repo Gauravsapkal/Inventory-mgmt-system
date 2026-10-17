@@ -115,7 +115,7 @@ export class RealtimeService implements OnDestroy {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return `http://localhost:5000/api/events?token=${encodeURIComponent(token)}`;
     }
-    return `/api/events?token=${encodeURIComponent(token)}`;
+    return `https://shree-ganesh-kirana-api.onrender.com/api/events?token=${encodeURIComponent(token)}`;
   }
 
   public disconnect(): void {
